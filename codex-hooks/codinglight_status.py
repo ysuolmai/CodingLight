@@ -34,9 +34,9 @@ EVENT_TO_STATE = {
     "session_start": "IDLE",
     "user_prompt_submit": "THINKING",
     "pre_tool_use": "BUILD",
-    "permission_request": "ERROR",
+    "permission_request": "WARNING",
     "post_tool_use": "CODING",
-    "stop": "IDLE",
+    "stop": "SUCCESS",
 }
 
 
@@ -246,9 +246,6 @@ def main() -> int:
     state = load_state()
     turn = int(state.get("turn", 0))
 
-    if event in {"session_start", "user_prompt_submit"}:
-        state.pop("alert_state", None)
-
     if event == "user_prompt_submit":
         turn += 1
 
@@ -256,16 +253,10 @@ def main() -> int:
     if desired_state is None:
         return 0
 
-    if event == "permission_request":
-        state["attention_state"] = "ERROR"
-    elif event == "pre_tool_use":
-        state.pop("attention_state", None)
-    elif state.get("attention_state") and event == "stop":
-        desired_state = str(state["attention_state"])
-
     state.update({"turn": turn, "event": event, "updated_ms": now_ms()})
     save_state(state)
     set_light_state(desired_state)
+
     return 0
 
 

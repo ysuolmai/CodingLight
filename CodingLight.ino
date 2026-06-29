@@ -385,12 +385,12 @@ static void renderAnimation(uint32_t nowMs) {
       break;
 
     case STATE_SUCCESS: {
-      if (elapsedMs >= 1200UL) {
-        setState(previousState);
+      if (elapsedMs >= 20000UL) {
+        setState(STATE_IDLE);
         return;
       }
 
-      const bool on = ((elapsedMs / 200UL) % 2UL) == 0UL;
+      const bool on = ((elapsedMs / 300UL) % 2UL) == 0UL;
       setRGB(on ? 255 : 0, 0, 0);
       break;
     }

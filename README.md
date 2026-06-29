@@ -178,13 +178,12 @@ SessionStart       -> IDLE
 UserPromptSubmit   -> THINKING
 PreToolUse         -> BUILD
 PostToolUse        -> CODING
-PermissionRequest  -> ERROR
-Stop               -> IDLE
+PermissionRequest  -> WARNING
+Stop               -> SUCCESS
 ```
 
-`PermissionRequest` shows red briefly. Once Codex continues with `PreToolUse`,
-the lamp returns to the working cycle so the alert does not stick after the
-problem has been handled. `Stop` returns the lamp to `IDLE`.
+`PermissionRequest` shows yellow. `Stop` shows green completion for 20 seconds
+and then returns to `IDLE`.
 
 The hook supports three transports:
 
@@ -272,9 +271,9 @@ IDLE      green steady on
 THINKING  green/yellow/red slow cycle
 CODING    green/yellow/red slow cycle
 BUILD     green/yellow/red slow cycle
-SUCCESS   green flashes 3 times, then returns to previous state
-ERROR     red flashing and remains urgent
-WARNING   yellow flashing and remains visible
+SUCCESS   green flashes, then returns to IDLE after 20 seconds
+WARNING   yellow flashing
+ERROR     red flashing
 OTA       green/yellow/red rotation
 ```
 
