@@ -36,7 +36,7 @@ EVENT_TO_STATE = {
     "pre_tool_use": "BUILD",
     "permission_request": "ERROR",
     "post_tool_use": "CODING",
-    "stop": "WARNING",
+    "stop": "IDLE",
 }
 
 

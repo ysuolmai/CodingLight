@@ -179,13 +179,12 @@ UserPromptSubmit   -> THINKING
 PreToolUse         -> BUILD
 PostToolUse        -> CODING
 PermissionRequest  -> ERROR
-Stop               -> WARNING
+Stop               -> IDLE
 ```
 
 `PermissionRequest` shows red briefly. Once Codex continues with `PreToolUse`,
 the lamp returns to the working cycle so the alert does not stick after the
-problem has been handled. `Stop` keeps a yellow reminder visible until the next
-prompt or session start.
+problem has been handled. `Stop` returns the lamp to `IDLE`.
 
 The hook supports three transports:
 
