@@ -1,81 +1,83 @@
 # CodingLight
 
-An ESP32-C3 desk status light for AI coding agents.
+[English README](README.en.md)
 
-CodingLight turns a small red/yellow/green LED traffic light into an ambient
-status display for Codex CLI. It can be controlled over HTTP, USB Serial, or
-BLE Nordic UART Service.
+一个基于 ESP32-C3 Super Mini 的桌面 AI 编程状态灯。
 
-## Lamp Language
+CodingLight 把红、黄、绿三色 LED 做成一个实体状态灯，用来显示 Codex CLI 等本地 AI 编程助手的状态。它支持 HTTP、USB Serial 和 BLE Nordic UART Service 三种控制方式。
 
-| Pattern | Meaning |
+## 灯语
+
+| 灯效 | 含义 |
 | --- | --- |
-| Steady green | Idle |
-| Slow green/yellow/red chase | Agent is thinking, coding, building, or running tools |
-| Flashing yellow | Permission or confirmation is needed |
-| Flashing red | Error, blocked state, or failure |
-| Flashing green for 20 seconds | Task finished, then returns to idle |
-| Off | Manually cleared |
+| 绿灯常亮 | 空闲 |
+| 绿 / 黄 / 红慢速跑马灯 | Agent 正在思考、写代码、构建或运行工具 |
+| 黄灯闪烁 | 需要权限或确认 |
+| 红灯闪烁 | 出错、阻塞或失败 |
+| 绿灯闪烁 20 秒 | 任务完成，然后自动回到空闲 |
+| 全灭 | 手动清除 |
 
-## Hardware
+## 硬件
 
-Tested board:
+已测试开发板：
 
 - ESP32-C3 Super Mini
 
-LED wiring:
+LED 接线：
 
 ```text
-GPIO2 -> Green LED cathode
-GPIO3 -> Yellow LED cathode
-GPIO4 -> Red LED cathode
-LED anodes -> 3.3V through current-limiting resistors
+GPIO2 -> 绿灯负极
+GPIO3 -> 黄灯负极
+GPIO4 -> 红灯负极
+LED 正极 -> 通过限流电阻接 3.3V
 ```
 
-The sketch assumes common-anode LEDs:
+本项目默认使用公共阳极 LED：
 
 ```text
-LED ON  = LOW
-LED OFF = HIGH
+LED 亮 = LOW
+LED 灭 = HIGH
 ```
 
-All LED output uses LEDC PWM. Animation code does not use `digitalWrite()`.
+所有 LED 输出都使用 LEDC PWM。动画代码不使用 `digitalWrite()`。
 
-## Repository Layout
+## 项目结构
 
 ```text
-CodingLight.ino                 Arduino sketch
-wifi_secrets.example.h          Example WiFi credentials file
+CodingLight.ino                 Arduino 主程序
+wifi_secrets.example.h          WiFi 配置示例
 codex-hooks/codinglight_status.py
 codex-hooks/hooks.example.json
+README.md                       中文说明
+README.en.md                    英文说明
 ```
 
-`wifi_secrets.h` is intentionally ignored by git.
+`wifi_secrets.h` 是你的本地 WiFi 密码文件，已经被 `.gitignore` 忽略，不应该提交到 GitHub。
 
-## Firmware Setup
+## 烧录固件
 
-1. Install Arduino IDE.
-2. Install the Espressif ESP32 board package.
-3. Open `CodingLight.ino`.
-4. Select an ESP32-C3 board profile, such as `ESP32C3 Dev Module`.
-5. If the default partition is too small, select a larger app partition. OTA firmware upload is not used, so a `Huge APP` style partition is fine.
-6. Upload over USB.
+1. 安装 Arduino IDE。
+2. 安装 Espressif ESP32 开发板包。
+3. 打开 `CodingLight.ino`。
+4. 开发板选择 ESP32-C3 对应型号，例如 `ESP32C3 Dev Module`。
+5. 如果默认分区太小，选择更大的 APP 分区。本项目不使用 OTA 固件上传，所以可以选择类似 `Huge APP` 的分区。
+6. 使用 USB 上传。
 
-Serial Monitor baud rate:
+串口监视器波特率：
 
 ```text
 115200
 ```
 
-## WiFi Credentials
+## WiFi 配置
 
-Copy the example file:
+复制示例文件：
 
 ```bash
 cp wifi_secrets.example.h wifi_secrets.h
 ```
 
-Edit `wifi_secrets.h`:
+编辑 `wifi_secrets.h`：
 
 ```cpp
 #pragma once
@@ -84,14 +86,13 @@ static const char WIFI_SSID[] = "your_wifi_name";
 static const char WIFI_PASSWORD[] = "your_wifi_password";
 ```
 
-If `wifi_secrets.h` is missing or the SSID is empty, the device still supports
-USB Serial and BLE. HTTP and mDNS require WiFi.
+如果没有 `wifi_secrets.h`，或者 SSID 为空，设备仍然可以通过 USB Serial 和 BLE 使用；HTTP 和 mDNS 需要 WiFi。
 
-## Control Interfaces
+## 控制接口
 
-### Serial and BLE Commands
+### Serial 和 BLE 命令
 
-Send one command per line:
+每行发送一个命令：
 
 ```text
 PING
@@ -108,7 +109,7 @@ STATE OTA
 BRIGHTNESS 0-255
 ```
 
-Responses:
+返回值：
 
 ```text
 PONG
@@ -116,7 +117,7 @@ OK
 ERR
 ```
 
-`INFO` returns JSON:
+`INFO` 返回 JSON：
 
 ```json
 {"state":"IDLE","ip":"192.168.1.50","wifi":true,"ble":true,"brightness":180,"uptime":12345}
@@ -124,13 +125,13 @@ ERR
 
 ### BLE
 
-Device name:
+BLE 设备名：
 
 ```text
 CodingLight
 ```
 
-Nordic UART Service UUIDs:
+Nordic UART Service UUID：
 
 ```text
 Service  6E400001-B5A3-F393-E0A9-E50E24DCCA9E
@@ -138,20 +139,19 @@ RX       6E400002-B5A3-F393-E0A9-E50E24DCCA9E
 TX       6E400003-B5A3-F393-E0A9-E50E24DCCA9E
 ```
 
-Write commands to RX and subscribe to TX notifications for responses.
+向 RX 写入命令，订阅 TX notification 接收响应。
 
 ### HTTP
 
-When WiFi is connected:
+WiFi 连接成功后，可以访问：
 
 ```text
 http://codinglight.local/
 ```
 
-If mDNS is not available on your network, use Serial or BLE `INFO` to get the
-device IP.
+如果你的网络不支持 mDNS，可以通过 Serial 或 BLE 发送 `INFO` 获取设备 IP。
 
-REST endpoints:
+REST API：
 
 ```text
 GET  /api/info
@@ -159,7 +159,7 @@ POST /api/state
 POST /api/brightness
 ```
 
-Examples:
+示例：
 
 ```bash
 curl http://codinglight.local/api/info
@@ -175,9 +175,16 @@ curl -X POST http://codinglight.local/api/brightness \
 
 ## Codex CLI Hook
 
-The included hook adapter maps Codex lifecycle events to lamp states:
+仓库内置了 Codex CLI hook 适配器：
 
-| Codex event | Lamp state |
+```text
+codex-hooks/codinglight_status.py
+codex-hooks/hooks.example.json
+```
+
+Codex 事件和灯效映射：
+
+| Codex 事件 | 灯状态 |
 | --- | --- |
 | `SessionStart` | `IDLE` |
 | `UserPromptSubmit` | `THINKING` |
@@ -186,35 +193,35 @@ The included hook adapter maps Codex lifecycle events to lamp states:
 | `PermissionRequest` | `WARNING` |
 | `Stop` | `SUCCESS` |
 
-The hook supports:
+Hook 支持的传输方式：
 
-| Transport | Notes |
+| 传输 | 说明 |
 | --- | --- |
-| `http` | Recommended when the device is on WiFi |
-| `usb` | Uses the USB Serial command protocol |
-| `ble` | Uses BLE NUS; requires Python package `bleak` |
-| `auto` | Tries HTTP, then USB, then BLE |
+| `http` | 推荐方式，设备连接 WiFi 后使用 |
+| `usb` | 使用 USB Serial 命令协议 |
+| `ble` | 使用 BLE NUS，需要 Python 包 `bleak` |
+| `auto` | 依次尝试 HTTP、USB、BLE |
 
-Install the example hook config:
+安装示例 hook 配置：
 
 ```bash
 mkdir -p ~/.codex
 cp codex-hooks/hooks.example.json ~/.codex/hooks.json
 ```
 
-Edit `~/.codex/hooks.json`:
+编辑 `~/.codex/hooks.json`：
 
-- Replace `/absolute/path/to/CodingLight` with this repository path.
-- Set `CODINGLIGHT_HOST` to `codinglight.local` or your device IP.
+- 把 `/absolute/path/to/CodingLight` 替换成这个仓库的绝对路径。
+- 把 `CODINGLIGHT_HOST` 设置成 `codinglight.local` 或设备 IP。
 
-For HTTP:
+HTTP 示例：
 
 ```bash
 export CODINGLIGHT_TRANSPORT=http
 export CODINGLIGHT_HOST=codinglight.local
 ```
 
-For USB Serial:
+USB Serial 示例：
 
 ```bash
 export CODINGLIGHT_TRANSPORT=usb
@@ -222,7 +229,7 @@ export CODINGLIGHT_SERIAL_PORT=/dev/ttyACM0
 export CODINGLIGHT_SERIAL_BAUD=115200
 ```
 
-For BLE:
+BLE 示例：
 
 ```bash
 python3 -m pip install bleak
@@ -230,22 +237,20 @@ export CODINGLIGHT_TRANSPORT=ble
 export CODINGLIGHT_BLE_NAME=CodingLight
 ```
 
-After changing Codex hooks, restart Codex CLI and run:
+修改 Codex hooks 后，重启 Codex CLI，并运行：
 
 ```text
 /hooks
 ```
 
-Review and trust the hook before expecting it to run.
+检查并信任这个 hook 后，它才会运行。
 
-## Security Notes
+## 安全说明
 
-- The HTTP API has no authentication. Use it only on a trusted local network.
-- Do not commit `wifi_secrets.h`.
-- The hook script intentionally exits successfully if the light is unreachable so Codex work is not blocked by hardware.
+- HTTP API 没有鉴权，只建议在可信本地网络使用。
+- 不要提交 `wifi_secrets.h`。
+- Hook 脚本在无法连接状态灯时仍然返回成功，避免硬件故障阻塞 Codex 工作。
 
-## Project Status
+## 项目状态
 
-This is a small personal hardware project. The firmware and hook protocol are
-kept intentionally simple so the device remains easy to adapt to other agents
-or status sources.
+这是一个小型个人硬件项目。固件和 hook 协议都刻意保持简单，方便改造成其他 Agent 或状态来源的实体提示灯。
