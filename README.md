@@ -162,6 +162,111 @@ curl -X POST http://codinglight.local/api/brightness \
   -d '{"brightness":120}'
 ```
 
+## Codex Hook Usage
+
+This repository includes a Codex hook adapter:
+
+```text
+codex-hooks/codinglight_status.py
+codex-hooks/hooks.example.json
+```
+
+The hook maps Codex lifecycle events to lamp states:
+
+```text
+SessionStart       -> IDLE
+UserPromptSubmit   -> THINKING
+PreToolUse         -> BUILD
+PostToolUse        -> CODING
+PermissionRequest  -> ERROR
+Stop               -> WARNING
+```
+
+Red alerts are latched. After `PermissionRequest`, later `PreToolUse`,
+`PostToolUse`, or `Stop` events keep the lamp in `ERROR` instead of hiding the
+problem. The latch is cleared by the next `UserPromptSubmit` or `SessionStart`.
+
+`Stop` maps to `WARNING` so a completed turn remains visible until you look at
+Codex or submit the next prompt.
+
+The hook supports three transports:
+
+```text
+http  WiFi HTTP API, fastest and recommended
+usb   USB Serial, same protocol as Arduino Serial Monitor
+ble   BLE Nordic UART Service, requires Python package bleak
+auto  Try HTTP, then USB, then BLE
+```
+
+Recommended setup for this device:
+
+```bash
+mkdir -p ~/.codex
+cp codex-hooks/hooks.example.json ~/.codex/hooks.json
+```
+
+Then edit `~/.codex/hooks.json` and replace:
+
+```text
+/absolute/path/to/CodingLight
+```
+
+with the absolute path to this repository.
+
+For your current device IP:
+
+```bash
+export CODINGLIGHT_TRANSPORT=auto
+export CODINGLIGHT_HOST=172.28.1.170
+```
+
+For HTTP only:
+
+```bash
+export CODINGLIGHT_TRANSPORT=http
+export CODINGLIGHT_HOST=172.28.1.170
+```
+
+For USB Serial:
+
+```bash
+export CODINGLIGHT_TRANSPORT=usb
+export CODINGLIGHT_SERIAL_PORT=/dev/ttyACM0
+export CODINGLIGHT_SERIAL_BAUD=115200
+```
+
+On Windows, `CODINGLIGHT_SERIAL_PORT` will usually look like:
+
+```text
+COM3
+```
+
+USB Serial uses the same commands documented above, for example `STATE BUILD`.
+If the optional `pyserial` package is installed, the hook uses it. On Linux and
+macOS, it can also use a built-in POSIX serial fallback.
+
+For BLE:
+
+```bash
+python3 -m pip install bleak
+export CODINGLIGHT_TRANSPORT=ble
+export CODINGLIGHT_BLE_NAME=CodingLight
+```
+
+If you know the BLE address, prefer it over scanning by name:
+
+```bash
+export CODINGLIGHT_BLE_ADDRESS=AA:BB:CC:DD:EE:FF
+```
+
+After changing Codex hooks, restart Codex CLI and run:
+
+```text
+/hooks
+```
+
+Review and trust the hook before expecting it to run.
+
 ## Animation States
 
 ```text
