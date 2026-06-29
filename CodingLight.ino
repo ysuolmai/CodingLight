@@ -242,6 +242,25 @@ static uint8_t sineBreath(uint32_t elapsedMs, uint32_t periodMs) {
   return (uint8_t)((linear * linear * (765U - (2U * linear))) / 16581375UL);
 }
 
+static uint8_t visiblePulse(uint32_t elapsedMs, uint32_t periodMs, uint8_t minimumValue) {
+  const uint8_t wave = sineBreath(elapsedMs, periodMs);
+  return minimumValue + (uint8_t)(((uint16_t)wave * (uint16_t)(255U - minimumValue)) / 255U);
+}
+
+static void renderWorkCycle(uint32_t elapsedMs) {
+  const uint32_t phaseMs = elapsedMs % 1440UL;
+  const uint32_t localMs = (phaseMs % 480UL) / 2U;
+  const uint8_t value = visiblePulse(localMs, 240U, 70U);
+
+  if (phaseMs < 480UL) {
+    setRGB(value, 0, 0);
+  } else if (phaseMs < 960UL) {
+    setRGB(0, value, 0);
+  } else {
+    setRGB(0, 0, value);
+  }
+}
+
 // ============================================================================
 // LED
 // ============================================================================
@@ -350,24 +369,20 @@ static void renderAnimation(uint32_t nowMs) {
       break;
 
     case STATE_IDLE:
-      setRGB(sineBreath(elapsedMs, 2000), 0, 0);
+      setRGB(255, 0, 0);
       break;
 
     case STATE_THINKING:
-      setRGB(0, sineBreath(elapsedMs, 1500), 0);
+      renderWorkCycle(elapsedMs);
       break;
 
-    case STATE_CODING: {
-      const bool on = ((elapsedMs / 250UL) % 2UL) == 0UL;
-      setRGB(0, on ? 255 : 0, 0);
+    case STATE_CODING:
+      renderWorkCycle(elapsedMs);
       break;
-    }
 
-    case STATE_BUILD: {
-      const bool greenPhase = ((elapsedMs / 300UL) % 2UL) == 0UL;
-      setRGB(greenPhase ? 255 : 0, greenPhase ? 0 : 255, 0);
+    case STATE_BUILD:
+      renderWorkCycle(elapsedMs);
       break;
-    }
 
     case STATE_SUCCESS: {
       if (elapsedMs >= 1200UL) {
@@ -387,7 +402,7 @@ static void renderAnimation(uint32_t nowMs) {
     }
 
     case STATE_WARNING: {
-      const bool on = ((elapsedMs / 600UL) % 2UL) == 0UL;
+      const bool on = ((elapsedMs / 300UL) % 2UL) == 0UL;
       setRGB(0, on ? 255 : 0, 0);
       break;
     }

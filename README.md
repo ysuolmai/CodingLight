@@ -166,13 +166,13 @@ curl -X POST http://codinglight.local/api/brightness \
 
 ```text
 OFF       all LEDs off
-IDLE      green breathing, 2 seconds
-THINKING  yellow breathing, 1.5 seconds
-CODING    yellow fast pulse, 500 ms
-BUILD     green/yellow alternating, 300 ms
+IDLE      green steady on
+THINKING  green/yellow/red slow cycle
+CODING    green/yellow/red slow cycle
+BUILD     green/yellow/red slow cycle
 SUCCESS   green flashes 3 times, then returns to previous state
-ERROR     red blink, 300 ms
-WARNING   yellow blink, 600 ms
+ERROR     red flashing and remains urgent
+WARNING   yellow flashing and remains visible
 OTA       green/yellow/red rotation
 ```
 
