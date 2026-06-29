@@ -217,14 +217,14 @@ For your current device IP:
 
 ```bash
 export CODINGLIGHT_TRANSPORT=auto
-export CODINGLIGHT_HOST=172.28.1.170
+export CODINGLIGHT_HOST=172.28.1.130
 ```
 
 For HTTP only:
 
 ```bash
 export CODINGLIGHT_TRANSPORT=http
-export CODINGLIGHT_HOST=172.28.1.170
+export CODINGLIGHT_HOST=172.28.1.130
 ```
 
 For USB Serial:

@@ -6,3 +6,4 @@ wifi_secrets.h
 build/
 .pio/
 .vscode/
+__pycache__/

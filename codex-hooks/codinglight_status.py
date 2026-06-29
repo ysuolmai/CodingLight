@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 
 
-DEFAULT_LIGHT_HOST = "172.28.1.170"
+DEFAULT_LIGHT_HOST = "172.28.1.130"
 DEFAULT_BLE_NAME = "CodingLight"
 DEFAULT_BAUD = 115200
 STATE_FILE = os.path.expanduser("~/.codex/tmp/codinglight_state.json")
