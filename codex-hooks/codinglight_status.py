@@ -257,9 +257,11 @@ def main() -> int:
         return 0
 
     if event == "permission_request":
-        state["alert_state"] = "ERROR"
-    elif state.get("alert_state") and event in {"pre_tool_use", "post_tool_use", "stop"}:
-        desired_state = str(state["alert_state"])
+        state["attention_state"] = "ERROR"
+    elif event == "pre_tool_use":
+        state.pop("attention_state", None)
+    elif state.get("attention_state") and event == "stop":
+        desired_state = str(state["attention_state"])
 
     state.update({"turn": turn, "event": event, "updated_ms": now_ms()})
     save_state(state)

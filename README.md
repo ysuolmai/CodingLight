@@ -182,12 +182,10 @@ PermissionRequest  -> ERROR
 Stop               -> WARNING
 ```
 
-Red alerts are latched. After `PermissionRequest`, later `PreToolUse`,
-`PostToolUse`, or `Stop` events keep the lamp in `ERROR` instead of hiding the
-problem. The latch is cleared by the next `UserPromptSubmit` or `SessionStart`.
-
-`Stop` maps to `WARNING` so a completed turn remains visible until you look at
-Codex or submit the next prompt.
+`PermissionRequest` shows red briefly. Once Codex continues with `PreToolUse`,
+the lamp returns to the working cycle so the alert does not stick after the
+problem has been handled. `Stop` keeps a yellow reminder visible until the next
+prompt or session start.
 
 The hook supports three transports:
 
