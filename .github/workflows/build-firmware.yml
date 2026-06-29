@@ -1,0 +1,69 @@
+name: Build Firmware
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ESP32-C3 firmware
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 Arduino core
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Compile sketch
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32c3 \
+            --export-binaries \
+            --output-dir build \
+            .
+
+      - name: Package firmware artifacts
+        run: |
+          mkdir -p release
+          find build -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.map' \) -print -exec cp {} release/ \;
+          test -n "$(find release -type f -name '*.bin' -print -quit)"
+          sha256sum release/* > release/SHA256SUMS.txt
+          short_sha="${GITHUB_SHA::7}"
+          zip -j "CodingLight-firmware-${short_sha}.zip" release/*
+          mv "CodingLight-firmware-${short_sha}.zip" release/
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodingLight-firmware-${{ github.sha }}
+          path: release/
+
+      - name: Update continuous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete continuous --yes --cleanup-tag || true
+          git tag -f continuous "$GITHUB_SHA"
+          git push --force origin continuous
+          gh release create continuous release/* \
+            --title "Continuous Firmware Build" \
+            --notes "Automated firmware build for commit ${GITHUB_SHA}. This binary is built without wifi_secrets.h, so WiFi credentials are not embedded." \
+            --prerelease \
+            --target "$GITHUB_SHA"

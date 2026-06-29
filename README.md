@@ -48,6 +48,7 @@ CodingLight.ino                 Arduino 主程序
 wifi_secrets.example.h          WiFi 配置示例
 codex-hooks/codinglight_status.py
 codex-hooks/hooks.example.json
+.github/workflows/build-firmware.yml
 README.md                       中文说明
 README.en.md                    英文说明
 ```
@@ -67,6 +68,34 @@ README.en.md                    英文说明
 
 ```text
 115200
+```
+
+## 云编译和 Release
+
+仓库包含 GitHub Actions 云编译 workflow：
+
+```text
+.github/workflows/build-firmware.yml
+```
+
+触发方式：
+
+- push 到 `main` 分支时自动编译。
+- 也可以在 GitHub Actions 页面手动运行 `Build Firmware`。
+
+编译产物会上传到两处：
+
+- 当前 workflow run 的 artifact。
+- GitHub Release 里的 `continuous` prerelease。
+
+`continuous` release 会被每次成功构建更新，适合下载“最新一次 main 分支固件”。产物里包含 `.bin`、`.elf`、`.map`、压缩包和 `SHA256SUMS.txt`。
+
+云编译不会包含你的 `wifi_secrets.h`，因此不会把 WiFi 密码写进公开固件。直接烧录云编译固件后，设备会启动 `CodingLight-Setup` 配网 AP，通过 captive portal 配网即可。
+
+如果 release 更新失败，到仓库设置里确认：
+
+```text
+Settings -> Actions -> General -> Workflow permissions -> Read and write permissions
 ```
 
 ## WiFi 配网

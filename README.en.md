@@ -48,6 +48,7 @@ CodingLight.ino                 Arduino sketch
 wifi_secrets.example.h          Example WiFi credentials file
 codex-hooks/codinglight_status.py
 codex-hooks/hooks.example.json
+.github/workflows/build-firmware.yml
 ```
 
 `wifi_secrets.h` is intentionally ignored by git.
@@ -65,6 +66,38 @@ Serial Monitor baud rate:
 
 ```text
 115200
+```
+
+## Cloud Build and Release
+
+The repository includes a GitHub Actions firmware build workflow:
+
+```text
+.github/workflows/build-firmware.yml
+```
+
+It runs when:
+
+- A commit is pushed to the `main` branch.
+- `Build Firmware` is started manually from the GitHub Actions page.
+
+Build outputs are uploaded to:
+
+- The workflow run artifact.
+- The `continuous` prerelease on GitHub Releases.
+
+The `continuous` release is replaced by each successful build and is intended
+as the latest firmware built from `main`. It includes `.bin`, `.elf`, `.map`, a
+zip archive, and `SHA256SUMS.txt`.
+
+Cloud builds do not include your local `wifi_secrets.h`, so WiFi credentials
+are not embedded in public firmware. After flashing a cloud-built binary, use
+the `CodingLight-Setup` captive portal to provision WiFi.
+
+If release updates fail, check this repository setting:
+
+```text
+Settings -> Actions -> General -> Workflow permissions -> Read and write permissions
 ```
 
 ## WiFi Setup
