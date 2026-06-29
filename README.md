@@ -69,9 +69,27 @@ README.en.md                    英文说明
 115200
 ```
 
-## WiFi 配置
+## WiFi 配网
 
-复制示例文件：
+推荐方式是直接使用设备自带的配网 AP。
+
+首次烧录后，如果固件里没有 WiFi 配置，CodingLight 会自动开启一个开放热点：
+
+```text
+CodingLight-Setup
+```
+
+连接这个热点后，手机或电脑通常会自动弹出 captive portal。如果没有自动弹出，手动打开：
+
+```text
+http://192.168.4.1/
+```
+
+在页面里填写 SSID 和密码后提交。设备会把 WiFi 配置保存到 ESP32 的 NVS 里，之后重启也会继续使用。
+
+如果需要重新配网，长按 ESP32-C3 Super Mini 的 `BOOT` 按键约 2.5 秒，会重新开启 `CodingLight-Setup` 热点。只打开配网页不会清掉旧 SSID 和密码；只有提交新的 SSID 后才会覆盖旧配置。
+
+也可以选择在本地编译时写入默认 WiFi。复制示例文件：
 
 ```bash
 cp wifi_secrets.example.h wifi_secrets.h
@@ -86,7 +104,9 @@ static const char WIFI_SSID[] = "your_wifi_name";
 static const char WIFI_PASSWORD[] = "your_wifi_password";
 ```
 
-如果没有 `wifi_secrets.h`，或者 SSID 为空，设备仍然可以通过 USB Serial 和 BLE 使用；HTTP 和 mDNS 需要 WiFi。
+`wifi_secrets.h` 已经被 `.gitignore` 忽略，不会提交到 GitHub。通过配网页保存到 NVS 的配置优先级高于 `wifi_secrets.h`。
+
+如果没有 `wifi_secrets.h`，或者 SSID 为空，设备仍然可以通过 USB Serial、BLE 和配网 AP 使用；HTTP 控制页面在 AP 下也可用，连接路由器后可以通过局域网访问。
 
 ## 控制接口
 
@@ -120,7 +140,7 @@ ERR
 `INFO` 返回 JSON：
 
 ```json
-{"state":"IDLE","ip":"192.168.1.50","wifi":true,"ble":true,"brightness":180,"uptime":12345}
+{"state":"IDLE","ip":"192.168.1.50","wifi":true,"ap":false,"ap_ip":"0.0.0.0","ble":true,"brightness":180,"uptime":12345}
 ```
 
 ### BLE
@@ -150,6 +170,18 @@ http://codinglight.local/
 ```
 
 如果你的网络不支持 mDNS，可以通过 Serial 或 BLE 发送 `INFO` 获取设备 IP。
+
+配网 AP 打开时：
+
+```text
+http://192.168.4.1/
+```
+
+会显示 WiFi 配网页；原来的灯控制页面仍然可以通过下面地址打开：
+
+```text
+http://192.168.4.1/control
+```
 
 REST API：
 

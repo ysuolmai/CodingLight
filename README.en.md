@@ -67,9 +67,33 @@ Serial Monitor baud rate:
 115200
 ```
 
-## WiFi Credentials
+## WiFi Setup
 
-Copy the example file:
+The easiest setup path is the built-in setup AP.
+
+On first boot, if no WiFi credentials are configured, CodingLight starts an
+open access point:
+
+```text
+CodingLight-Setup
+```
+
+Connect to it. A captive portal should open automatically on most phones and
+laptops. If it does not, open:
+
+```text
+http://192.168.4.1/
+```
+
+Submit your SSID and password there. The credentials are saved in ESP32 NVS and
+survive reboot.
+
+To provision a different network later, long-press the ESP32-C3 Super Mini
+`BOOT` button for about 2.5 seconds. This re-enables the `CodingLight-Setup`
+AP. Opening the setup portal does not erase existing credentials; they are
+replaced only after you submit a new SSID.
+
+You can also provide build-time fallback credentials. Copy the example file:
 
 ```bash
 cp wifi_secrets.example.h wifi_secrets.h
@@ -84,8 +108,12 @@ static const char WIFI_SSID[] = "your_wifi_name";
 static const char WIFI_PASSWORD[] = "your_wifi_password";
 ```
 
+`wifi_secrets.h` is ignored by git. Credentials saved from the captive portal
+take priority over `wifi_secrets.h`.
+
 If `wifi_secrets.h` is missing or the SSID is empty, the device still supports
-USB Serial and BLE. HTTP and mDNS require WiFi.
+USB Serial, BLE, and the setup AP. The HTTP control page is available through
+the setup AP and through your LAN after WiFi connects.
 
 ## Control Interfaces
 
@@ -119,7 +147,7 @@ ERR
 `INFO` returns JSON:
 
 ```json
-{"state":"IDLE","ip":"192.168.1.50","wifi":true,"ble":true,"brightness":180,"uptime":12345}
+{"state":"IDLE","ip":"192.168.1.50","wifi":true,"ap":false,"ap_ip":"0.0.0.0","ble":true,"brightness":180,"uptime":12345}
 ```
 
 ### BLE
@@ -150,6 +178,18 @@ http://codinglight.local/
 
 If mDNS is not available on your network, use Serial or BLE `INFO` to get the
 device IP.
+
+When the setup AP is active:
+
+```text
+http://192.168.4.1/
+```
+
+shows the WiFi setup page. The normal light control page remains available at:
+
+```text
+http://192.168.4.1/control
+```
 
 REST endpoints:
 
