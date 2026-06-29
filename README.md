@@ -1,10 +1,27 @@
-# ESP32-C3 AI Coding Status Light
+# CodingLight
 
-Arduino sketch for an ESP32-C3 Super Mini status light with three common-anode LEDs.
+An ESP32-C3 desk status light for AI coding agents.
+
+CodingLight turns a small red/yellow/green LED traffic light into an ambient
+status display for Codex CLI. It can be controlled over HTTP, USB Serial, or
+BLE Nordic UART Service.
+
+## Lamp Language
+
+| Pattern | Meaning |
+| --- | --- |
+| Steady green | Idle |
+| Slow green/yellow/red chase | Agent is thinking, coding, building, or running tools |
+| Flashing yellow | Permission or confirmation is needed |
+| Flashing red | Error, blocked state, or failure |
+| Flashing green for 20 seconds | Task finished, then returns to idle |
+| Off | Manually cleared |
 
 ## Hardware
 
-Board: ESP32-C3 Super Mini
+Tested board:
+
+- ESP32-C3 Super Mini
 
 LED wiring:
 
@@ -12,34 +29,53 @@ LED wiring:
 GPIO2 -> Green LED cathode
 GPIO3 -> Yellow LED cathode
 GPIO4 -> Red LED cathode
-LED anodes -> 3.3V through appropriate resistors
+LED anodes -> 3.3V through current-limiting resistors
 ```
 
-The LEDs are common anode:
+The sketch assumes common-anode LEDs:
 
 ```text
 LED ON  = LOW
 LED OFF = HIGH
 ```
 
-The sketch uses LEDC PWM, so animations and brightness control do not use `digitalWrite()`.
+All LED output uses LEDC PWM. Animation code does not use `digitalWrite()`.
 
-## Files
+## Repository Layout
 
 ```text
-CodingLight/
-  CodingLight.ino              Main Arduino sketch
-  wifi_secrets.example.h       Example WiFi credentials file
-  wifi_secrets.h               Your local WiFi credentials, ignored by git
-  .gitignore
-  README.md
+CodingLight.ino                 Arduino sketch
+wifi_secrets.example.h          Example WiFi credentials file
+codex-hooks/codinglight_status.py
+codex-hooks/hooks.example.json
 ```
 
-## WiFi Setup
+`wifi_secrets.h` is intentionally ignored by git.
 
-Create `wifi_secrets.h` in the same folder as `CodingLight.ino`.
+## Firmware Setup
 
-You can copy `wifi_secrets.example.h` and edit it:
+1. Install Arduino IDE.
+2. Install the Espressif ESP32 board package.
+3. Open `CodingLight.ino`.
+4. Select an ESP32-C3 board profile, such as `ESP32C3 Dev Module`.
+5. If the default partition is too small, select a larger app partition. OTA firmware upload is not used, so a `Huge APP` style partition is fine.
+6. Upload over USB.
+
+Serial Monitor baud rate:
+
+```text
+115200
+```
+
+## WiFi Credentials
+
+Copy the example file:
+
+```bash
+cp wifi_secrets.example.h wifi_secrets.h
+```
+
+Edit `wifi_secrets.h`:
 
 ```cpp
 #pragma once
@@ -48,30 +84,14 @@ static const char WIFI_SSID[] = "your_wifi_name";
 static const char WIFI_PASSWORD[] = "your_wifi_password";
 ```
 
-`wifi_secrets.h` is listed in `.gitignore`, so it should not be pushed to GitHub.
+If `wifi_secrets.h` is missing or the SSID is empty, the device still supports
+USB Serial and BLE. HTTP and mDNS require WiFi.
 
-If `wifi_secrets.h` is missing or the SSID is empty, the device still runs Serial and BLE normally, but WiFi, mDNS, and HTTP will not be reachable.
+## Control Interfaces
 
-## Arduino IDE Setup
+### Serial and BLE Commands
 
-1. Install Arduino IDE.
-2. Install the ESP32 board package from Espressif.
-3. Open `CodingLight/CodingLight.ino`.
-4. Select an ESP32-C3 board profile, for example `ESP32C3 Dev Module`.
-5. Select the serial port.
-6. Use a large enough partition scheme if the default app partition is too small.
-   Since this project does not use OTA firmware upload, `Huge APP` is fine.
-7. Click Upload.
-
-Recommended serial monitor speed:
-
-```text
-115200 baud
-```
-
-## Serial Commands
-
-Send one command per line over Serial Monitor.
+Send one command per line:
 
 ```text
 PING
@@ -102,9 +122,7 @@ ERR
 {"state":"IDLE","ip":"192.168.1.50","wifi":true,"ble":true,"brightness":180,"uptime":12345}
 ```
 
-## BLE Usage
-
-BLE is enabled by default.
+### BLE
 
 Device name:
 
@@ -115,32 +133,23 @@ CodingLight
 Nordic UART Service UUIDs:
 
 ```text
-Service: 6E400001-B5A3-F393-E0A9-E50E24DCCA9E
-RX:      6E400002-B5A3-F393-E0A9-E50E24DCCA9E
-TX:      6E400003-B5A3-F393-E0A9-E50E24DCCA9E
+Service  6E400001-B5A3-F393-E0A9-E50E24DCCA9E
+RX       6E400002-B5A3-F393-E0A9-E50E24DCCA9E
+TX       6E400003-B5A3-F393-E0A9-E50E24DCCA9E
 ```
 
-Use a BLE UART app, connect to `CodingLight`, write commands to RX, and subscribe to TX notifications for responses.
+Write commands to RX and subscribe to TX notifications for responses.
 
-## HTTP Usage
+### HTTP
 
-When WiFi is connected, open:
+When WiFi is connected:
 
 ```text
 http://codinglight.local/
 ```
 
-If mDNS does not resolve on your network, get the IP from Serial:
-
-```text
-INFO
-```
-
-Then open:
-
-```text
-http://DEVICE_IP/
-```
+If mDNS is not available on your network, use Serial or BLE `INFO` to get the
+device IP.
 
 REST endpoints:
 
@@ -154,73 +163,55 @@ Examples:
 
 ```bash
 curl http://codinglight.local/api/info
+
 curl -X POST http://codinglight.local/api/state \
   -H "Content-Type: application/json" \
   -d '{"state":"CODING"}'
+
 curl -X POST http://codinglight.local/api/brightness \
   -H "Content-Type: application/json" \
   -d '{"brightness":120}'
 ```
 
-## Codex Hook Usage
+## Codex CLI Hook
 
-This repository includes a Codex hook adapter:
+The included hook adapter maps Codex lifecycle events to lamp states:
 
-```text
-codex-hooks/codinglight_status.py
-codex-hooks/hooks.example.json
-```
+| Codex event | Lamp state |
+| --- | --- |
+| `SessionStart` | `IDLE` |
+| `UserPromptSubmit` | `THINKING` |
+| `PreToolUse` | `BUILD` |
+| `PostToolUse` | `CODING` |
+| `PermissionRequest` | `WARNING` |
+| `Stop` | `SUCCESS` |
 
-The hook maps Codex lifecycle events to lamp states:
+The hook supports:
 
-```text
-SessionStart       -> IDLE
-UserPromptSubmit   -> THINKING
-PreToolUse         -> BUILD
-PostToolUse        -> CODING
-PermissionRequest  -> WARNING
-Stop               -> SUCCESS
-```
+| Transport | Notes |
+| --- | --- |
+| `http` | Recommended when the device is on WiFi |
+| `usb` | Uses the USB Serial command protocol |
+| `ble` | Uses BLE NUS; requires Python package `bleak` |
+| `auto` | Tries HTTP, then USB, then BLE |
 
-`PermissionRequest` shows yellow. `Stop` shows green completion for 20 seconds
-and then returns to `IDLE`.
-
-The hook supports three transports:
-
-```text
-http  WiFi HTTP API, fastest and recommended
-usb   USB Serial, same protocol as Arduino Serial Monitor
-ble   BLE Nordic UART Service, requires Python package bleak
-auto  Try HTTP, then USB, then BLE
-```
-
-Recommended setup for this device:
+Install the example hook config:
 
 ```bash
 mkdir -p ~/.codex
 cp codex-hooks/hooks.example.json ~/.codex/hooks.json
 ```
 
-Then edit `~/.codex/hooks.json` and replace:
+Edit `~/.codex/hooks.json`:
 
-```text
-/absolute/path/to/CodingLight
-```
+- Replace `/absolute/path/to/CodingLight` with this repository path.
+- Set `CODINGLIGHT_HOST` to `codinglight.local` or your device IP.
 
-with the absolute path to this repository.
-
-For your current device IP:
-
-```bash
-export CODINGLIGHT_TRANSPORT=auto
-export CODINGLIGHT_HOST=172.28.1.130
-```
-
-For HTTP only:
+For HTTP:
 
 ```bash
 export CODINGLIGHT_TRANSPORT=http
-export CODINGLIGHT_HOST=172.28.1.130
+export CODINGLIGHT_HOST=codinglight.local
 ```
 
 For USB Serial:
@@ -231,28 +222,12 @@ export CODINGLIGHT_SERIAL_PORT=/dev/ttyACM0
 export CODINGLIGHT_SERIAL_BAUD=115200
 ```
 
-On Windows, `CODINGLIGHT_SERIAL_PORT` will usually look like:
-
-```text
-COM3
-```
-
-USB Serial uses the same commands documented above, for example `STATE BUILD`.
-If the optional `pyserial` package is installed, the hook uses it. On Linux and
-macOS, it can also use a built-in POSIX serial fallback.
-
 For BLE:
 
 ```bash
 python3 -m pip install bleak
 export CODINGLIGHT_TRANSPORT=ble
 export CODINGLIGHT_BLE_NAME=CodingLight
-```
-
-If you know the BLE address, prefer it over scanning by name:
-
-```bash
-export CODINGLIGHT_BLE_ADDRESS=AA:BB:CC:DD:EE:FF
 ```
 
 After changing Codex hooks, restart Codex CLI and run:
@@ -263,33 +238,14 @@ After changing Codex hooks, restart Codex CLI and run:
 
 Review and trust the hook before expecting it to run.
 
-## Animation States
+## Security Notes
 
-```text
-OFF       all LEDs off
-IDLE      green steady on
-THINKING  green/yellow/red slow cycle
-CODING    green/yellow/red slow cycle
-BUILD     green/yellow/red slow cycle
-SUCCESS   green flashes, then returns to IDLE after 20 seconds
-WARNING   yellow flashing
-ERROR     red flashing
-OTA       green/yellow/red rotation
-```
+- The HTTP API has no authentication. Use it only on a trusted local network.
+- Do not commit `wifi_secrets.h`.
+- The hook script intentionally exits successfully if the light is unreachable so Codex work is not blocked by hardware.
 
-`OTA` is only a visual state in this version. Firmware updates are done over USB.
+## Project Status
 
-## GitHub Notes
-
-Before pushing, check that `wifi_secrets.h` is not staged:
-
-```bash
-git status
-```
-
-Only commit the example secrets file:
-
-```bash
-git add CodingLight.ino wifi_secrets.example.h .gitignore README.md
-git commit -m "Add ESP32-C3 coding status light"
-```
+This is a small personal hardware project. The firmware and hook protocol are
+kept intentionally simple so the device remains easy to adapt to other agents
+or status sources.

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=172.28.1.130 python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py session_start",
+            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=codinglight.local python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py session_start",
             "timeout": 5,
             "statusMessage": "Updating CodingLight"
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=172.28.1.130 python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py user_prompt_submit",
+            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=codinglight.local python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py user_prompt_submit",
             "timeout": 5,
             "statusMessage": "Updating CodingLight"
           }
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=172.28.1.130 python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py pre_tool_use",
+            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=codinglight.local python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py pre_tool_use",
             "timeout": 5,
             "statusMessage": "Updating CodingLight"
           }
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=172.28.1.130 python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py permission_request",
+            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=codinglight.local python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py permission_request",
             "timeout": 5,
             "statusMessage": "Updating CodingLight"
           }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=172.28.1.130 python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py post_tool_use",
+            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=codinglight.local python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py post_tool_use",
             "timeout": 5,
             "statusMessage": "Updating CodingLight"
           }
@@ -69,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=172.28.1.130 python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py stop",
+            "command": "CODINGLIGHT_TRANSPORT=auto CODINGLIGHT_HOST=codinglight.local python3 /absolute/path/to/CodingLight/codex-hooks/codinglight_status.py stop",
             "timeout": 5,
             "statusMessage": "Updating CodingLight"
           }
