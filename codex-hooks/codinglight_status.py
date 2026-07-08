@@ -11,8 +11,10 @@ should never block coding work just because the physical indicator is offline.
 """
 
 import asyncio
+import glob
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -23,9 +25,21 @@ DEFAULT_LIGHT_HOST = "codinglight.local"
 DEFAULT_BLE_NAME = "CodingLight"
 DEFAULT_BAUD = 115200
 STATE_FILE = os.path.expanduser("~/.codex/tmp/codinglight_state.json")
+WATCHER_LOG_FILE = os.path.expanduser("~/.codex/tmp/codinglight_error_watcher.log")
+SESSION_GLOB = os.path.expanduser("~/.codex/sessions/**/*.jsonl")
 HTTP_TIMEOUT_SECONDS = 0.7
 SERIAL_TIMEOUT_SECONDS = 0.7
 BLE_TIMEOUT_SECONDS = 4.0
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)).strip())
+    except ValueError:
+        return default
+
+
+ERROR_WATCH_SECONDS = env_int("CODINGLIGHT_ERROR_WATCH_SECONDS", 900)
 
 NUS_RX_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 
@@ -37,7 +51,45 @@ EVENT_TO_STATE = {
     "permission_request": "WARNING",
     "post_tool_use": "CODING",
     "stop": "SUCCESS",
+    "api_error": "ERROR",
 }
+
+
+ERROR_EVENT_TYPES = {
+    "error",
+    "turn.failed",
+    "turn_failed",
+    "task_failed",
+}
+
+TEXT_ERROR_MARKERS = (
+    "api request failed",
+    "api error",
+    "request failed",
+    "stream error",
+    "stream disconnected",
+    "connection reset",
+    "connection refused",
+    "connection closed",
+    "timed out",
+    "timeout",
+    "rate limit",
+    "too many requests",
+    "unauthorized",
+    "forbidden",
+    "bad gateway",
+    "gateway timeout",
+    "service unavailable",
+    "upstream",
+    "provider error",
+    "status 401",
+    "status 403",
+    "status 429",
+    "status 500",
+    "status 502",
+    "status 503",
+    "status 504",
+)
 
 
 def now_ms() -> int:
@@ -59,6 +111,15 @@ def save_state(data: dict) -> None:
     with open(tmp_file, "w", encoding="utf-8") as handle:
         json.dump(data, handle, separators=(",", ":"))
     os.replace(tmp_file, STATE_FILE)
+
+
+def append_watcher_log(message: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(WATCHER_LOG_FILE), exist_ok=True)
+        with open(WATCHER_LOG_FILE, "a", encoding="utf-8") as handle:
+            handle.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {message}\n")
+    except OSError:
+        pass
 
 
 def send_http_state(state: str) -> bool:
@@ -238,11 +299,137 @@ def set_light_state(state: str) -> bool:
     return False
 
 
+def newest_session_file() -> str:
+    candidates = glob.glob(SESSION_GLOB, recursive=True)
+    if not candidates:
+        return ""
+    return max(candidates, key=lambda path: os.path.getmtime(path))
+
+
+def payload_type(payload: object) -> str:
+    if isinstance(payload, dict):
+        value = payload.get("type")
+        return value if isinstance(value, str) else ""
+    return ""
+
+
+def payload_has_error_shape(obj: dict) -> bool:
+    top_type = obj.get("type")
+    payload = obj.get("payload")
+    nested_type = payload_type(payload)
+
+    for value in (top_type, nested_type):
+        if isinstance(value, str):
+            lowered = value.lower()
+            if lowered in ERROR_EVENT_TYPES or "error" in lowered or "failed" in lowered:
+                return True
+
+    if top_type != "event_msg" or not isinstance(payload, dict):
+        return False
+
+    if nested_type in {"agent_message", "user_message", "token_count", "task_started", "task_complete"}:
+        return False
+
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).lower()
+    return any(marker in text for marker in TEXT_ERROR_MARKERS)
+
+
+def line_indicates_api_error(line: str) -> bool:
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(obj, dict) and payload_has_error_shape(obj)
+
+
+def current_turn_changed_or_finished(watched_turn: int) -> bool:
+    state = load_state()
+    current_turn = int(state.get("turn", 0))
+    current_event = str(state.get("event", ""))
+    return current_turn != watched_turn or current_event in {"stop", "api_error"}
+
+
+def watch_for_api_errors(watched_turn: int, session_file: str, start_offset: int) -> int:
+    deadline = time.monotonic() + ERROR_WATCH_SECONDS
+    offset = start_offset
+
+    append_watcher_log(f"watch turn={watched_turn} file={session_file} offset={start_offset}")
+
+    while time.monotonic() < deadline:
+        if current_turn_changed_or_finished(watched_turn):
+            return 0
+
+        try:
+            size = os.path.getsize(session_file)
+            if size < offset:
+                offset = 0
+            if size > offset:
+                with open(session_file, "r", encoding="utf-8", errors="replace") as handle:
+                    handle.seek(offset)
+                    for line in handle:
+                        if line_indicates_api_error(line):
+                            state = load_state()
+                            if int(state.get("turn", 0)) == watched_turn:
+                                state.update({"turn": watched_turn, "event": "api_error", "updated_ms": now_ms()})
+                                save_state(state)
+                                set_light_state("ERROR")
+                                append_watcher_log(f"api_error turn={watched_turn}")
+                            return 0
+                    offset = handle.tell()
+        except OSError as exc:
+            append_watcher_log(f"watch_error turn={watched_turn} error={exc}")
+            return 0
+
+        time.sleep(0.35)
+
+    return 0
+
+
+def start_api_error_watcher(turn: int) -> None:
+    if ERROR_WATCH_SECONDS <= 0:
+        return
+
+    session_file = newest_session_file()
+    if not session_file:
+        return
+
+    try:
+        start_offset = os.path.getsize(session_file)
+        subprocess.Popen(
+            [
+                sys.executable,
+                __file__,
+                "__watch_api_errors",
+                str(turn),
+                session_file,
+                str(start_offset),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+    except (OSError, ValueError):
+        return
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         return 0
 
     event = sys.argv[1].strip().lower()
+
+    if event == "__watch_api_errors":
+        if len(sys.argv) < 5:
+            return 0
+        try:
+            watched_turn = int(sys.argv[2])
+            start_offset = int(sys.argv[4])
+        except ValueError:
+            return 0
+        return watch_for_api_errors(watched_turn, sys.argv[3], start_offset)
+
     state = load_state()
     turn = int(state.get("turn", 0))
 
@@ -256,6 +443,9 @@ def main() -> int:
     state.update({"turn": turn, "event": event, "updated_ms": now_ms()})
     save_state(state)
     set_light_state(desired_state)
+
+    if event == "user_prompt_submit":
+        start_api_error_watcher(turn)
 
     return 0
 
