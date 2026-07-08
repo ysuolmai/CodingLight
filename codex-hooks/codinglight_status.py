@@ -377,7 +377,12 @@ def enabled_transports() -> list[str]:
         return [requested]
     if requested == "auto":
         return ["http", "usb", "ble"]
-    return ["http", "usb", "ble"]
+
+    result: list[str] = []
+    for item in split_env_list(requested):
+        if item in {"http", "usb", "ble"} and item not in result:
+            result.append(item)
+    return result if result else ["http", "usb", "ble"]
 
 
 def set_light_state(state: str) -> bool:

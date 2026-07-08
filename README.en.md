@@ -248,7 +248,15 @@ curl -X POST http://codinglight.local/api/brightness \
 
 ## Codex CLI Hook
 
-The included hook adapter maps Codex lifecycle events to lamp states:
+The included hook adapter lives in:
+
+```text
+codex-hooks/codinglight_status.py
+codex-hooks/install.py
+codex-hooks/hooks.example.json
+```
+
+It maps Codex lifecycle events to lamp states:
 
 | Codex event | Lamp state |
 | --- | --- |
@@ -259,16 +267,34 @@ The included hook adapter maps Codex lifecycle events to lamp states:
 | `PermissionRequest` | `WARNING` |
 | `Stop` | `SUCCESS` |
 
+If Codex stops a turn because of an API, upstream, or third-party model
+provider error, the hook watches local Codex session logs and switches the
+light to `ERROR`.
+
 The hook supports:
 
 | Transport | Notes |
 | --- | --- |
 | `http` | Recommended when the device is on WiFi |
-| `usb` | Uses the USB Serial command protocol |
-| `ble` | Uses BLE NUS; requires Python package `bleak` |
-| `auto` | Tries HTTP, then USB, then BLE |
+| `usb` | Uses the USB Serial command protocol and can auto-detect common USB serial ports |
+| `ble` | Uses BLE NUS; requires Python package `bleak`; the installer can scan and save the device address |
+| `auto` | Tries HTTP, then USB, then BLE, and stops after the first successful transport |
 
-Install the example hook config:
+Recommended one-line interactive install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ysuolmai/CodingLight/main/codex-hooks/install.py | python3
+```
+
+The installer:
+
+- Lets you configure HTTP by LAN scan or by manually entering the light IP.
+- Lets you configure USB with runtime auto-detect or a fixed serial port.
+- Lets you configure BLE by scanning devices and saving the selected address.
+- Lets you type `skip` for any transport.
+- Installs `~/.codex/hooks/codinglight_status.py` and updates `~/.codex/hooks.json`. Existing `hooks.json` is backed up, and non-CodingLight hooks are preserved where possible.
+
+Manual example hook config:
 
 ```bash
 mkdir -p ~/.codex

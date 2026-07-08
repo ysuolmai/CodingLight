@@ -244,6 +244,7 @@ curl -X POST http://codinglight.local/api/brightness \
 
 ```text
 codex-hooks/codinglight_status.py
+codex-hooks/install.py
 codex-hooks/hooks.example.json
 ```
 
@@ -258,16 +259,32 @@ Codex 事件和灯效映射：
 | `PermissionRequest` | `WARNING` |
 | `Stop` | `SUCCESS` |
 
+如果 Codex 因 API、上游或三方模型服务错误导致当前任务中止，hook 会监听本地 Codex session 日志并把灯切到 `ERROR`。
+
 Hook 支持的传输方式：
 
 | 传输 | 说明 |
 | --- | --- |
 | `http` | 推荐方式，设备连接 WiFi 后使用 |
-| `usb` | 使用 USB Serial 命令协议 |
-| `ble` | 使用 BLE NUS，需要 Python 包 `bleak` |
-| `auto` | 依次尝试 HTTP、USB、BLE |
+| `usb` | 使用 USB Serial 命令协议；可自动识别常见 USB 串口 |
+| `ble` | 使用 BLE NUS，需要 Python 包 `bleak`；安装脚本可扫描并保存设备地址 |
+| `auto` | 依次尝试 HTTP、USB、BLE，第一条成功后停止，不会三路同时发送 |
 
-安装示例 hook 配置：
+推荐使用交互式一行安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ysuolmai/CodingLight/main/codex-hooks/install.py | python3
+```
+
+安装脚本会：
+
+- 询问是否配置 HTTP，并可扫描局域网或手动输入灯的 IP。
+- 询问是否配置 USB，可使用运行时自动识别，也可指定串口。
+- 询问是否配置 BLE，扫描后选择设备并保存地址。
+- 每一种传输都可以输入 `skip` 跳过。
+- 安装 `~/.codex/hooks/codinglight_status.py`，并更新 `~/.codex/hooks.json`。已有 `hooks.json` 会先备份，并尽量保留非 CodingLight hook。
+
+也可以手动安装示例 hook 配置：
 
 ```bash
 mkdir -p ~/.codex
