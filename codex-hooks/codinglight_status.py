@@ -3,7 +3,7 @@
 
 Supported transports:
   - HTTP: fastest and recommended when the ESP32 is on WiFi.
-  - USB Serial: sends the same text commands as Arduino Serial Monitor.
+  - USB Serial: auto-discovers common ports, or uses configured ports.
   - BLE NUS: optional, requires the third-party Python package "bleak".
 
 The script intentionally exits 0 even when the light is unreachable. Codex hooks
@@ -29,7 +29,15 @@ WATCHER_LOG_FILE = os.path.expanduser("~/.codex/tmp/codinglight_error_watcher.lo
 SESSION_GLOB = os.path.expanduser("~/.codex/sessions/**/*.jsonl")
 HTTP_TIMEOUT_SECONDS = 0.7
 SERIAL_TIMEOUT_SECONDS = 0.7
-BLE_TIMEOUT_SECONDS = 4.0
+BLE_TIMEOUT_SECONDS = 1.2
+
+SERIAL_PORT_PATTERNS = (
+    "/dev/serial/by-id/*",
+    "/dev/ttyACM*",
+    "/dev/ttyUSB*",
+    "/dev/cu.usbmodem*",
+    "/dev/cu.usbserial*",
+)
 
 
 def env_int(name: str, default: int) -> int:
@@ -39,6 +47,16 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)).strip())
+    except ValueError:
+        return default
+
+
+HTTP_TIMEOUT_SECONDS = env_float("CODINGLIGHT_HTTP_TIMEOUT_SECONDS", HTTP_TIMEOUT_SECONDS)
+SERIAL_TIMEOUT_SECONDS = env_float("CODINGLIGHT_SERIAL_TIMEOUT_SECONDS", SERIAL_TIMEOUT_SECONDS)
+BLE_TIMEOUT_SECONDS = env_float("CODINGLIGHT_BLE_TIMEOUT_SECONDS", BLE_TIMEOUT_SECONDS)
 ERROR_WATCH_SECONDS = env_int("CODINGLIGHT_ERROR_WATCH_SECONDS", 900)
 
 NUS_RX_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -232,9 +250,80 @@ def send_serial_posix(port: str, baud: int, command: str) -> bool:
             pass
 
 
+def split_env_list(value: str) -> list[str]:
+    normalized = value.replace(";", ",").replace(os.pathsep, ",")
+    return [item.strip() for item in normalized.split(",") if item.strip()]
+
+
+def expand_serial_port_token(token: str) -> list[str]:
+    expanded = os.path.expanduser(token)
+    matches = glob.glob(expanded)
+    return matches if matches else [expanded]
+
+
+def is_likely_usb_serial_port(port) -> bool:
+    device = str(getattr(port, "device", "") or "")
+    if (
+        device.startswith("/dev/ttyACM")
+        or device.startswith("/dev/ttyUSB")
+        or device.startswith("/dev/cu.usbmodem")
+        or device.startswith("/dev/cu.usbserial")
+    ):
+        return True
+
+    if getattr(port, "vid", None) is not None or getattr(port, "pid", None) is not None:
+        return True
+
+    text = " ".join(
+        str(getattr(port, attr, "") or "")
+        for attr in ("description", "hwid", "manufacturer", "product")
+    ).lower()
+    return any(marker in text for marker in ("usb", "acm", "cp210", "ch340", "esp32", "espressif"))
+
+
+def serial_ports_from_pyserial() -> list[str]:
+    try:
+        from serial.tools import list_ports  # type: ignore
+    except ImportError:
+        return []
+
+    try:
+        return [
+            port.device
+            for port in list_ports.comports()
+            if port.device and is_likely_usb_serial_port(port)
+        ]
+    except Exception:
+        return []
+
+
+def candidate_serial_ports() -> list[str]:
+    configured = (
+        os.environ.get("CODINGLIGHT_SERIAL_PORTS", "").strip()
+        or os.environ.get("CODINGLIGHT_SERIAL_PORT", "").strip()
+    )
+
+    candidates: list[str] = []
+    if configured:
+        for token in split_env_list(configured):
+            candidates.extend(expand_serial_port_token(token))
+    else:
+        candidates.extend(serial_ports_from_pyserial())
+        for pattern in SERIAL_PORT_PATTERNS:
+            candidates.extend(glob.glob(pattern))
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for port in candidates:
+        if port not in seen:
+            result.append(port)
+            seen.add(port)
+    return result
+
+
 def send_usb_state(state: str) -> bool:
-    port = os.environ.get("CODINGLIGHT_SERIAL_PORT", "").strip()
-    if not port:
+    ports = candidate_serial_ports()
+    if not ports:
         return False
 
     baud_text = os.environ.get("CODINGLIGHT_SERIAL_BAUD", str(DEFAULT_BAUD)).strip()
@@ -244,7 +333,10 @@ def send_usb_state(state: str) -> bool:
         baud = DEFAULT_BAUD
 
     command = f"STATE {state}"
-    return send_serial_with_pyserial(port, baud, command) or send_serial_posix(port, baud, command)
+    for port in ports:
+        if send_serial_with_pyserial(port, baud, command) or send_serial_posix(port, baud, command):
+            return True
+    return False
 
 
 async def send_ble_state_async(state: str) -> bool:
