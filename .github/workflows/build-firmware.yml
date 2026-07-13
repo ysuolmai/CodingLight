@@ -31,23 +31,33 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Compile sketch
+      - name: Compile wired firmware
         run: |
           arduino-cli compile \
-            --fqbn esp32:esp32:esp32c3 \
+            --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs \
             --export-binaries \
-            --output-dir build \
+            --output-dir build/wired \
             .
+
+      - name: Compile battery firmware
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs \
+            --export-binaries \
+            --output-dir build/battery \
+            firmware/CodingLightBattery
 
       - name: Package firmware artifacts
         run: |
-          mkdir -p release
-          find build -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.map' \) -print -exec cp {} release/ \;
-          test -n "$(find release -type f -name '*.bin' -print -quit)"
-          sha256sum release/* > release/SHA256SUMS.txt
+          mkdir -p release/wired release/battery
+          find build/wired -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.map' \) -print -exec cp {} release/wired/ \;
+          find build/battery -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.map' \) -print -exec cp {} release/battery/ \;
+          test -n "$(find release/wired -type f -name '*.bin' -print -quit)"
+          test -n "$(find release/battery -type f -name '*.bin' -print -quit)"
           short_sha="${GITHUB_SHA::7}"
-          zip -j "CodingLight-firmware-${short_sha}.zip" release/*
-          mv "CodingLight-firmware-${short_sha}.zip" release/
+          zip -j "release/CodingLight-wired-${short_sha}.zip" release/wired/*
+          zip -j "release/CodingLight-battery-${short_sha}.zip" release/battery/*
+          find release -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > release/SHA256SUMS.txt
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -62,8 +72,8 @@ jobs:
           gh release delete continuous --yes --cleanup-tag || true
           git tag -f continuous "$GITHUB_SHA"
           git push --force origin continuous
-          gh release create continuous release/* \
+          gh release create continuous release/*.zip release/SHA256SUMS.txt \
             --title "Continuous Firmware Build" \
-            --notes "Automated firmware build for commit ${GITHUB_SHA}. This binary is built without wifi_secrets.h, so WiFi credentials are not embedded." \
+            --notes "Automated wired and battery firmware builds for commit ${GITHUB_SHA}. Both use the Minimal SPIFFS OTA partition layout and are built without local WiFi or OTA secrets." \
             --prerelease \
             --target "$GITHUB_SHA"

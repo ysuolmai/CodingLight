@@ -65,8 +65,9 @@
     only after a new SSID is submitted.
 
   Firmware update:
-    OTA upload is intentionally disabled to keep the sketch below the default
-    ESP32-C3 app partition size. Update firmware over USB from Arduino IDE.
+    ArduinoOTA starts after WiFi connects. Use the Minimal SPIFFS partition
+    scheme so the 4 MB flash contains two OTA application slots. Migrating from
+    a non-OTA partition layout requires one USB flash first.
 
   BLE Nordic UART Service UUIDs:
     Service:        6E400001-B5A3-F393-E0A9-E50E24DCCA9E
@@ -97,6 +98,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 #include <Preferences.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -111,6 +113,12 @@
 #else
 static const char WIFI_SSID[] = "";
 static const char WIFI_PASSWORD[] = "";
+#endif
+
+#if __has_include("ota_secrets.h")
+#include "ota_secrets.h"
+#else
+static const char OTA_PASSWORD[] = "";
 #endif
 
 static const char DEVICE_NAME[] = "CodingLight";
@@ -193,6 +201,7 @@ static char activeWifiPassword[WIFI_PASSWORD_BUFFER_SIZE];
 static bool wifiCredentialsAvailable = false;
 static uint32_t lastWifiReconnectAttemptMs = 0;
 static bool mdnsStarted = false;
+static bool otaStarted = false;
 static bool configPortalActive = false;
 static bool dnsServerStarted = false;
 static uint32_t configPortalCloseAtMs = 0;
@@ -482,8 +491,8 @@ static void buildInfoJson(char *out, size_t outSize) {
   const bool wifiConnected = WiFi.status() == WL_CONNECTED;
 
   snprintf(out, outSize,
-           "{\"state\":\"%s\",\"ip\":\"%u.%u.%u.%u\",\"wifi\":%s,\"ap\":%s,"
-           "\"ap_ip\":\"%u.%u.%u.%u\",\"ble\":%s,\"brightness\":%u,"
+           "{\"variant\":\"wired\",\"state\":\"%s\",\"ip\":\"%u.%u.%u.%u\",\"wifi\":%s,\"ap\":%s,"
+           "\"ap_ip\":\"%u.%u.%u.%u\",\"ble\":%s,\"ota\":%s,\"brightness\":%u,"
            "\"uptime\":%lu}",
            stateToText(currentState),
            ip[0], ip[1], ip[2], ip[3],
@@ -491,6 +500,7 @@ static void buildInfoJson(char *out, size_t outSize) {
            configPortalActive ? "true" : "false",
            apIp[0], apIp[1], apIp[2], apIp[3],
            bleStarted ? "true" : "false",
+           otaStarted ? "true" : "false",
            globalBrightness,
            (unsigned long)millis());
 }
@@ -860,14 +870,38 @@ static bool saveRuntimeWifiCredentials(const char *ssid, const char *password) {
   return true;
 }
 
-static void startMdnsIfNeeded() {
-  if (mdnsStarted || WiFi.status() != WL_CONNECTED) {
+static void startNetworkServicesIfNeeded() {
+  if (otaStarted || WiFi.status() != WL_CONNECTED) {
     return;
   }
 
-  if (MDNS.begin(MDNS_NAME)) {
-    MDNS.addService("http", "tcp", 80);
-    mdnsStarted = true;
+  ArduinoOTA.setHostname(MDNS_NAME);
+  if (OTA_PASSWORD[0] != '\0') {
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+  }
+
+  ArduinoOTA
+    .onStart([]() { setState(STATE_OTA); })
+    .onError([](ota_error_t error) {
+      (void)error;
+      setState(STATE_ERROR);
+    });
+
+  ArduinoOTA.begin();
+  otaStarted = true;
+  MDNS.addService("http", "tcp", 80);
+  mdnsStarted = true;
+}
+
+static void stopNetworkServices() {
+  if (otaStarted) {
+    ArduinoOTA.end();
+    MDNS.end();
+    otaStarted = false;
+    mdnsStarted = false;
+  } else if (mdnsStarted) {
+    MDNS.end();
+    mdnsStarted = false;
   }
 }
 
@@ -920,10 +954,7 @@ static void beginWifiAttempt(uint32_t nowMs) {
     return;
   }
 
-  if (mdnsStarted) {
-    MDNS.end();
-    mdnsStarted = false;
-  }
+  stopNetworkServices();
 
   WiFi.mode(configPortalActive ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(false);
@@ -951,7 +982,7 @@ static void serviceWifi() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    startMdnsIfNeeded();
+    startNetworkServicesIfNeeded();
 
     if (configPortalCloseAtMs != 0 && nowMs >= configPortalCloseAtMs) {
       stopConfigPortal();
@@ -959,10 +990,7 @@ static void serviceWifi() {
     return;
   }
 
-  if (mdnsStarted) {
-    MDNS.end();
-    mdnsStarted = false;
-  }
+  stopNetworkServices();
 
   if (!wifiCredentialsAvailable) {
     startConfigPortal();
@@ -1358,5 +1386,8 @@ void loop() {
   serviceBleTx();
   serviceBootButton();
   serviceWifi();
+  if (otaStarted) {
+    ArduinoOTA.handle();
+  }
   server.handleClient();
 }

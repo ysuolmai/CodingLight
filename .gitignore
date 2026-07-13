@@ -1,4 +1,5 @@
 wifi_secrets.h
+ota_secrets.h
 *.bin
 *.elf
 *.map

@@ -22,7 +22,7 @@ import urllib.request
 
 
 DEFAULT_LIGHT_HOST = "codinglight.local"
-DEFAULT_BLE_NAME = "CodingLight"
+DEFAULT_BLE_NAMES = ("CodingLight", "CodingLight-Battery", "VibeCodingLight")
 DEFAULT_BAUD = 115200
 STATE_FILE = os.path.expanduser("~/.codex/tmp/codinglight_state.json")
 WATCHER_LOG_FILE = os.path.expanduser("~/.codex/tmp/codinglight_error_watcher.log")
@@ -346,14 +346,18 @@ async def send_ble_state_async(state: str) -> bool:
         return False
 
     address = os.environ.get("CODINGLIGHT_BLE_ADDRESS", "").strip()
-    name = os.environ.get("CODINGLIGHT_BLE_NAME", DEFAULT_BLE_NAME).strip()
+    configured_names = os.environ.get("CODINGLIGHT_BLE_NAME", "").strip()
+    names = split_env_list(configured_names) if configured_names else list(DEFAULT_BLE_NAMES)
 
     try:
         if address:
             device = await BleakScanner.find_device_by_address(address, timeout=BLE_TIMEOUT_SECONDS)
         else:
             device = await BleakScanner.find_device_by_filter(
-                lambda found, _: found.name == name,
+                lambda found, advertisement: (
+                    found.name in names
+                    or getattr(advertisement, "local_name", None) in names
+                ),
                 timeout=BLE_TIMEOUT_SECONDS,
             )
 

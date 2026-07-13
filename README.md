@@ -27,7 +27,14 @@ CodingLight 把红、黄、绿三色 LED 做成一个实体状态灯，用来显
 
 - ESP32-C3 Super Mini
 
-LED 接线：
+仓库维护两种硬件版本：
+
+| 版本 | 固件 | LED 接线 | 按键 |
+| --- | --- | --- | --- |
+| 无电池 / wired | `CodingLight.ino` | GPIO2 绿、GPIO3 黄、GPIO4 红 | BOOT(GPIO9) 长按打开配网 |
+| 电池 / battery | `firmware/CodingLightBattery/CodingLightBattery.ino` | GPIO2 红、GPIO3 黄、GPIO4 绿 | GPIO5 短按切换状态，长按 2 秒后松开进入深睡 |
+
+无电池版 LED 接线：
 
 ```text
 GPIO2 -> 绿灯负极
@@ -50,6 +57,11 @@ LED 灭 = HIGH
 ```text
 CodingLight.ino                 Arduino 主程序
 wifi_secrets.example.h          WiFi 配置示例
+ota_secrets.example.h           OTA 密码示例
+firmware/CodingLightBattery/
+  CodingLightBattery.ino        电池版 Arduino 主程序
+  wifi_secrets.example.h        电池版 WiFi 配置示例
+  ota_secrets.example.h         电池版 OTA 密码示例
 codex-hooks/codinglight_status.py
 codex-hooks/hooks.example.json
 .github/workflows/build-firmware.yml
@@ -57,16 +69,18 @@ README.md                       中文说明
 README.en.md                    英文说明
 ```
 
-`wifi_secrets.h` 是你的本地 WiFi 密码文件，已经被 `.gitignore` 忽略，不应该提交到 GitHub。
+`wifi_secrets.h` 和 `ota_secrets.h` 是本地密码文件，已经被 `.gitignore` 忽略，不应该提交到 GitHub。
 
 ## 烧录固件
 
 1. 安装 Arduino IDE。
 2. 安装 Espressif ESP32 开发板包。
-3. 打开 `CodingLight.ino`。
+3. 无电池版打开 `CodingLight.ino`；电池版打开 `firmware/CodingLightBattery/CodingLightBattery.ino`。
 4. 开发板选择 ESP32-C3 对应型号，例如 `ESP32C3 Dev Module`。
-5. 如果默认分区太小，选择更大的 APP 分区。本项目不使用 OTA 固件上传，所以可以选择类似 `Huge APP` 的分区。
+5. 分区选择 `Minimal SPIFFS`，确保存在两个 OTA application slot。
 6. 使用 USB 上传。
+
+如果设备以前使用 `Huge APP` 或其他无 OTA 分区，第一次必须通过 USB 烧录新固件和分区表；切换成功后才能使用 OTA。
 
 串口监视器波特率：
 
@@ -92,9 +106,9 @@ README.en.md                    英文说明
 - 当前 workflow run 的 artifact。
 - GitHub Release 里的 `continuous` prerelease。
 
-`continuous` release 会被每次成功构建更新，适合下载“最新一次 main 分支固件”。产物里包含 `.bin`、`.elf`、`.map`、压缩包和 `SHA256SUMS.txt`。
+`continuous` release 会被每次成功构建更新，包含分别标记为 `wired` 和 `battery` 的压缩包以及 `SHA256SUMS.txt`。不要在两个版本之间混刷固件，因为 LED 引脚定义不同。
 
-云编译不会包含你的 `wifi_secrets.h`，因此不会把 WiFi 密码写进公开固件。直接烧录云编译固件后，设备会启动 `CodingLight-Setup` 配网 AP，通过 captive portal 配网即可。
+云编译不会包含本地 WiFi 或 OTA 密码。无电池版烧录后可通过 `CodingLight-Setup` 配网；电池版没有 captive portal，公开构建默认通过 USB Serial 或 BLE 使用。
 
 如果 release 更新失败，到仓库设置里确认：
 
@@ -104,7 +118,7 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 ## WiFi 配网
 
-推荐方式是直接使用设备自带的配网 AP。
+以下 captive portal 配网流程适用于无电池版。
 
 首次烧录后，如果固件里没有 WiFi 配置，CodingLight 会自动开启一个开放热点：
 
@@ -140,6 +154,18 @@ static const char WIFI_PASSWORD[] = "your_wifi_password";
 `wifi_secrets.h` 已经被 `.gitignore` 忽略，不会提交到 GitHub。通过配网页保存到 NVS 的配置优先级高于 `wifi_secrets.h`。
 
 如果没有 `wifi_secrets.h`，或者 SSID 为空，设备仍然可以通过 USB Serial、BLE 和配网 AP 使用；HTTP 控制页面在 AP 下也可用，连接路由器后可以通过局域网访问。
+
+电池版需要在 `firmware/CodingLightBattery/` 内复制并填写自己的 `wifi_secrets.h`。没有 WiFi 配置时，电池版仍可通过 USB Serial 和 BLE 使用，但 HTTP 和 OTA 不会启动。
+
+## OTA 更新
+
+两种固件在 WiFi 连接成功后都会启用 ArduinoOTA：
+
+- 无电池版主机名：`codinglight.local`
+- 电池版主机名：`codinglight-battery.local`
+- OTA 过程中灯进入 `OTA` 状态；失败时进入 `ERROR`。
+- 建议从对应目录的 `ota_secrets.example.h` 复制为 `ota_secrets.h` 并设置强密码。
+- OTA 只能更新 application 固件。改变分区表、bootloader 或刷错固件时，必须回到 USB 烧录。
 
 ## 控制接口
 
@@ -284,6 +310,8 @@ curl -fsSL https://raw.githubusercontent.com/ysuolmai/CodingLight/main/codex-hoo
 - 每一种传输都可以输入 `skip` 跳过。
 - 安装 `~/.codex/hooks/codinglight_status.py`，并更新 `~/.codex/hooks.json`。已有 `hooks.json` 会先备份，并尽量保留非 CodingLight hook。
 
+同一条安装命令适用于两种硬件。安装器通过 `/api/info`、USB 串口或 BLE 扫描选择实际设备；电池版 BLE 名为 `CodingLight-Battery`，旧代码的 `VibeCodingLight` 也保持兼容。
+
 也可以手动安装示例 hook 配置：
 
 ```bash
@@ -316,7 +344,7 @@ BLE 示例：
 ```bash
 python3 -m pip install bleak
 export CODINGLIGHT_TRANSPORT=ble
-export CODINGLIGHT_BLE_NAME=CodingLight
+export CODINGLIGHT_BLE_NAME=CodingLight,CodingLight-Battery
 ```
 
 修改 Codex hooks 后，重启 Codex CLI，并运行：
@@ -330,7 +358,8 @@ export CODINGLIGHT_BLE_NAME=CodingLight
 ## 安全说明
 
 - HTTP API 没有鉴权，只建议在可信本地网络使用。
-- 不要提交 `wifi_secrets.h`。
+- 不要提交 `wifi_secrets.h` 或 `ota_secrets.h`。
+- 未设置 `OTA_PASSWORD` 时 ArduinoOTA 没有密码保护，只应在隔离的可信网络中临时使用。
 - Hook 脚本在无法连接状态灯时仍然返回成功，避免硬件故障阻塞 Codex 工作。
 
 ## 项目状态

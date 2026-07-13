@@ -187,9 +187,10 @@ def configure_http(env: dict[str, str], transports: list[str]) -> None:
         if found:
             for idx, item in enumerate(found, 1):
                 host = item.get("_host", "")
+                variant = item.get("variant", "wired")
                 state = item.get("state", "?")
                 brightness = item.get("brightness", "?")
-                print(f"{idx}. {host}  state={state} brightness={brightness}")
+                print(f"{idx}. {host}  variant={variant} state={state} brightness={brightness}")
             choice = ask("Choose a device number, m for manual, or skip", "1")
             if choice.lower() not in {"s", "skip"}:
                 if choice.lower() in {"m", "manual"}:
@@ -325,7 +326,13 @@ def configure_ble(env: dict[str, str], transports: list[str]) -> None:
         if name or address:
             rows.append((name, address))
 
-    rows.sort(key=lambda item: (0 if "codinglight" in item[0].lower() else 1, item[0], item[1]))
+    rows.sort(
+        key=lambda item: (
+            0 if item[0] in {"CodingLight", "CodingLight-Battery", "VibeCodingLight"} else 1,
+            item[0],
+            item[1],
+        )
+    )
     if rows:
         for idx, (name, address) in enumerate(rows, 1):
             label = name or "(no name)"
@@ -349,7 +356,10 @@ def configure_ble(env: dict[str, str], transports: list[str]) -> None:
     if name:
         env["CODINGLIGHT_BLE_NAME"] = name
     elif "CODINGLIGHT_BLE_ADDRESS" not in env:
-        env["CODINGLIGHT_BLE_NAME"] = ask("Enter BLE device name", "CodingLight")
+        env["CODINGLIGHT_BLE_NAME"] = ask(
+            "Enter BLE device name",
+            "CodingLight,CodingLight-Battery,VibeCodingLight",
+        )
 
     transports.append("ble")
 

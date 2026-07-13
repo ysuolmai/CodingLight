@@ -23,7 +23,14 @@ Tested board:
 
 - ESP32-C3 Super Mini
 
-LED wiring:
+The repository maintains two hardware variants:
+
+| Variant | Firmware | LED pins | Button |
+| --- | --- | --- | --- |
+| Wired | `CodingLight.ino` | GPIO2 green, GPIO3 yellow, GPIO4 red | Hold BOOT (GPIO9) to open WiFi setup |
+| Battery | `firmware/CodingLightBattery/CodingLightBattery.ino` | GPIO2 red, GPIO3 yellow, GPIO4 green | GPIO5 cycles states; hold for 2 seconds and release to sleep |
+
+Wired variant LED wiring:
 
 ```text
 GPIO2 -> Green LED cathode
@@ -46,21 +53,28 @@ All LED output uses LEDC PWM. Animation code does not use `digitalWrite()`.
 ```text
 CodingLight.ino                 Arduino sketch
 wifi_secrets.example.h          Example WiFi credentials file
+ota_secrets.example.h           Example OTA password file
+firmware/CodingLightBattery/
+  CodingLightBattery.ino        Battery variant Arduino sketch
+  wifi_secrets.example.h        Battery WiFi example
+  ota_secrets.example.h         Battery OTA password example
 codex-hooks/codinglight_status.py
 codex-hooks/hooks.example.json
 .github/workflows/build-firmware.yml
 ```
 
-`wifi_secrets.h` is intentionally ignored by git.
+`wifi_secrets.h` and `ota_secrets.h` are intentionally ignored by git.
 
 ## Firmware Setup
 
 1. Install Arduino IDE.
 2. Install the Espressif ESP32 board package.
-3. Open `CodingLight.ino`.
+3. Open `CodingLight.ino` for wired hardware, or `firmware/CodingLightBattery/CodingLightBattery.ino` for battery hardware.
 4. Select an ESP32-C3 board profile, such as `ESP32C3 Dev Module`.
-5. If the default partition is too small, select a larger app partition. OTA firmware upload is not used, so a `Huge APP` style partition is fine.
+5. Select the `Minimal SPIFFS` partition scheme so the flash has two OTA application slots.
 6. Upload over USB.
+
+If the device currently uses `Huge APP` or another non-OTA partition table, the first migration must be flashed over USB. OTA works only after the new firmware and partition table are installed.
 
 Serial Monitor baud rate:
 
@@ -86,13 +100,13 @@ Build outputs are uploaded to:
 - The workflow run artifact.
 - The `continuous` prerelease on GitHub Releases.
 
-The `continuous` release is replaced by each successful build and is intended
-as the latest firmware built from `main`. It includes `.bin`, `.elf`, `.map`, a
-zip archive, and `SHA256SUMS.txt`.
+The `continuous` release is replaced by each successful build. It contains
+separate `wired` and `battery` archives plus `SHA256SUMS.txt`. Do not flash one
+variant onto the other because their LED pin assignments differ.
 
-Cloud builds do not include your local `wifi_secrets.h`, so WiFi credentials
-are not embedded in public firmware. After flashing a cloud-built binary, use
-the `CodingLight-Setup` captive portal to provision WiFi.
+Cloud builds contain neither local WiFi nor OTA credentials. The wired build
+can be provisioned through `CodingLight-Setup`; the battery build has no captive
+portal and defaults to USB Serial or BLE when built without credentials.
 
 If release updates fail, check this repository setting:
 
@@ -102,7 +116,7 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 ## WiFi Setup
 
-The easiest setup path is the built-in setup AP.
+The captive portal flow below applies to the wired variant.
 
 On first boot, if no WiFi credentials are configured, CodingLight starts an
 open access point:
@@ -147,6 +161,20 @@ take priority over `wifi_secrets.h`.
 If `wifi_secrets.h` is missing or the SSID is empty, the device still supports
 USB Serial, BLE, and the setup AP. The HTTP control page is available through
 the setup AP and through your LAN after WiFi connects.
+
+For the battery variant, create `wifi_secrets.h` inside
+`firmware/CodingLightBattery/`. Without it, USB Serial and BLE still work, but
+HTTP and OTA do not start.
+
+## OTA Updates
+
+Both firmware variants start ArduinoOTA after WiFi connects:
+
+- Wired hostname: `codinglight.local`
+- Battery hostname: `codinglight-battery.local`
+- The lamp enters `OTA` during an update and `ERROR` if the update fails.
+- Copy the relevant `ota_secrets.example.h` to `ota_secrets.h` and set a strong password.
+- OTA updates only the application. Partition-table or bootloader changes, and recovery from a wrong variant, require USB flashing.
 
 ## Control Interfaces
 
@@ -294,6 +322,10 @@ The installer:
 - Lets you type `skip` for any transport.
 - Installs `~/.codex/hooks/codinglight_status.py` and updates `~/.codex/hooks.json`. Existing `hooks.json` is backed up, and non-CodingLight hooks are preserved where possible.
 
+The same command supports both hardware variants. Discovery uses `/api/info`,
+USB Serial, or BLE; the battery BLE name is `CodingLight-Battery`, and the old
+`VibeCodingLight` name remains recognized.
+
 Manual example hook config:
 
 ```bash
@@ -326,7 +358,7 @@ For BLE:
 ```bash
 python3 -m pip install bleak
 export CODINGLIGHT_TRANSPORT=ble
-export CODINGLIGHT_BLE_NAME=CodingLight
+export CODINGLIGHT_BLE_NAME=CodingLight,CodingLight-Battery
 ```
 
 After changing Codex hooks, restart Codex CLI and run:
@@ -340,7 +372,8 @@ Review and trust the hook before expecting it to run.
 ## Security Notes
 
 - The HTTP API has no authentication. Use it only on a trusted local network.
-- Do not commit `wifi_secrets.h`.
+- Do not commit `wifi_secrets.h` or `ota_secrets.h`.
+- ArduinoOTA has no password when `OTA_PASSWORD` is empty; use that only temporarily on an isolated trusted network.
 - The hook script intentionally exits successfully if the light is unreachable so Codex work is not blocked by hardware.
 
 ## Project Status
