@@ -37,7 +37,7 @@ jobs:
             --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs \
             --export-binaries \
             --output-dir build/wired \
-            .
+            firmware/CodingLightWired
 
       - name: Compile battery firmware
         run: |

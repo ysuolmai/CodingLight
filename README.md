@@ -31,8 +31,8 @@ CodingLight 把红、黄、绿三色 LED 做成一个实体状态灯，用来显
 
 | 版本 | 固件 | LED 接线 | 按键 |
 | --- | --- | --- | --- |
-| 无电池 / wired | `CodingLight.ino` | GPIO2 绿、GPIO3 黄、GPIO4 红 | BOOT(GPIO9) 长按打开配网 |
-| 电池 / battery | `firmware/CodingLightBattery/CodingLightBattery.ino` | GPIO2 红、GPIO3 黄、GPIO4 绿 | GPIO5 短按切换状态，长按 2 秒后松开进入深睡 |
+| 无电池 / wired | `firmware/CodingLightWired/CodingLightWired.ino` | GPIO2 绿、GPIO3 黄、GPIO4 红 | BOOT(GPIO9) 长按打开配网 |
+| 电池 / battery | `firmware/CodingLightBattery/CodingLightBattery.ino` | GPIO2 红、GPIO3 黄、GPIO4 绿 | GPIO5 短按切换；按住 2–5 秒后松开休眠；按住至少 5 秒后松开配网 |
 
 无电池版 LED 接线：
 
@@ -55,9 +55,10 @@ LED 灭 = HIGH
 ## 项目结构
 
 ```text
-CodingLight.ino                 Arduino 主程序
-wifi_secrets.example.h          WiFi 配置示例
-ota_secrets.example.h           OTA 密码示例
+firmware/CodingLightWired/
+  CodingLightWired.ino          无电池版 Arduino 主程序
+  wifi_secrets.example.h        无电池版 WiFi 配置示例
+  ota_secrets.example.h         无电池版 OTA 密码示例
 firmware/CodingLightBattery/
   CodingLightBattery.ino        电池版 Arduino 主程序
   wifi_secrets.example.h        电池版 WiFi 配置示例
@@ -75,7 +76,7 @@ README.en.md                    英文说明
 
 1. 安装 Arduino IDE。
 2. 安装 Espressif ESP32 开发板包。
-3. 无电池版打开 `CodingLight.ino`；电池版打开 `firmware/CodingLightBattery/CodingLightBattery.ino`。
+3. 无电池版打开 `firmware/CodingLightWired/CodingLightWired.ino`；电池版打开 `firmware/CodingLightBattery/CodingLightBattery.ino`。
 4. 开发板选择 ESP32-C3 对应型号，例如 `ESP32C3 Dev Module`。
 5. 分区选择 `Minimal SPIFFS`，确保存在两个 OTA application slot。
 6. 使用 USB 上传。
@@ -108,7 +109,7 @@ README.en.md                    英文说明
 
 `continuous` release 会被每次成功构建更新，包含分别标记为 `wired` 和 `battery` 的压缩包以及 `SHA256SUMS.txt`。不要在两个版本之间混刷固件，因为 LED 引脚定义不同。
 
-云编译不会包含本地 WiFi 或 OTA 密码。无电池版烧录后可通过 `CodingLight-Setup` 配网；电池版没有 captive portal，公开构建默认通过 USB Serial 或 BLE 使用。
+云编译不会包含本地 WiFi 或 OTA 密码。两种版本烧录后都会启动 `CodingLight-Setup`，可通过 captive portal 配网。
 
 如果 release 更新失败，到仓库设置里确认：
 
@@ -118,7 +119,7 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 ## WiFi 配网
 
-以下 captive portal 配网流程适用于无电池版。
+两种版本都使用相同的 captive portal 配网流程。
 
 首次烧录后，如果固件里没有 WiFi 配置，CodingLight 会自动开启一个开放热点：
 
@@ -134,12 +135,19 @@ http://192.168.4.1/
 
 在页面里填写 SSID 和密码后提交。设备会把 WiFi 配置保存到 ESP32 的 NVS 里，之后重启也会继续使用。
 
-如果需要重新配网，长按 ESP32-C3 Super Mini 的 `BOOT` 按键约 2.5 秒，会重新开启 `CodingLight-Setup` 热点。只打开配网页不会清掉旧 SSID 和密码；只有提交新的 SSID 后才会覆盖旧配置。
+如果需要重新配网：
+
+- 无电池版长按 ESP32-C3 Super Mini 的 `BOOT` 按键约 2.5 秒。
+- 电池版按住 GPIO5 按键至少 5 秒；灯从 2 秒时的熄灭提示变成黄灯后松开。
+
+设备会重新开启 `CodingLight-Setup` 热点。只打开配网页不会清掉旧 SSID 和密码；只有提交新的 SSID 后才会覆盖旧配置。电池版按住 2–5 秒后松开仍然进入深睡，不会打开配网。
+
+如果电池版当前处于深睡，第一次按 GPIO5 只负责唤醒；先松开，设备启动后再长按至少 5 秒进入配网。
 
 也可以选择在本地编译时写入默认 WiFi。复制示例文件：
 
 ```bash
-cp wifi_secrets.example.h wifi_secrets.h
+cp firmware/CodingLightWired/wifi_secrets.example.h firmware/CodingLightWired/wifi_secrets.h
 ```
 
 编辑 `wifi_secrets.h`：
@@ -155,7 +163,7 @@ static const char WIFI_PASSWORD[] = "your_wifi_password";
 
 如果没有 `wifi_secrets.h`，或者 SSID 为空，设备仍然可以通过 USB Serial、BLE 和配网 AP 使用；HTTP 控制页面在 AP 下也可用，连接路由器后可以通过局域网访问。
 
-电池版需要在 `firmware/CodingLightBattery/` 内复制并填写自己的 `wifi_secrets.h`。没有 WiFi 配置时，电池版仍可通过 USB Serial 和 BLE 使用，但 HTTP 和 OTA 不会启动。
+电池版也可以在 `firmware/CodingLightBattery/` 内放置 `wifi_secrets.h` 作为编译时默认值。没有已保存或编译时 WiFi 配置时，它会开启配网 AP；USB Serial 和 BLE 同时保持可用。
 
 ## OTA 更新
 

@@ -27,8 +27,8 @@ The repository maintains two hardware variants:
 
 | Variant | Firmware | LED pins | Button |
 | --- | --- | --- | --- |
-| Wired | `CodingLight.ino` | GPIO2 green, GPIO3 yellow, GPIO4 red | Hold BOOT (GPIO9) to open WiFi setup |
-| Battery | `firmware/CodingLightBattery/CodingLightBattery.ino` | GPIO2 red, GPIO3 yellow, GPIO4 green | GPIO5 cycles states; hold for 2 seconds and release to sleep |
+| Wired | `firmware/CodingLightWired/CodingLightWired.ino` | GPIO2 green, GPIO3 yellow, GPIO4 red | Hold BOOT (GPIO9) to open WiFi setup |
+| Battery | `firmware/CodingLightBattery/CodingLightBattery.ino` | GPIO2 red, GPIO3 yellow, GPIO4 green | GPIO5 cycles states; release after 2–5 seconds to sleep; release after at least 5 seconds for WiFi setup |
 
 Wired variant LED wiring:
 
@@ -51,9 +51,10 @@ All LED output uses LEDC PWM. Animation code does not use `digitalWrite()`.
 ## Repository Layout
 
 ```text
-CodingLight.ino                 Arduino sketch
-wifi_secrets.example.h          Example WiFi credentials file
-ota_secrets.example.h           Example OTA password file
+firmware/CodingLightWired/
+  CodingLightWired.ino          Wired variant Arduino sketch
+  wifi_secrets.example.h        Wired WiFi example
+  ota_secrets.example.h         Wired OTA password example
 firmware/CodingLightBattery/
   CodingLightBattery.ino        Battery variant Arduino sketch
   wifi_secrets.example.h        Battery WiFi example
@@ -69,7 +70,7 @@ codex-hooks/hooks.example.json
 
 1. Install Arduino IDE.
 2. Install the Espressif ESP32 board package.
-3. Open `CodingLight.ino` for wired hardware, or `firmware/CodingLightBattery/CodingLightBattery.ino` for battery hardware.
+3. Open `firmware/CodingLightWired/CodingLightWired.ino` for wired hardware, or `firmware/CodingLightBattery/CodingLightBattery.ino` for battery hardware.
 4. Select an ESP32-C3 board profile, such as `ESP32C3 Dev Module`.
 5. Select the `Minimal SPIFFS` partition scheme so the flash has two OTA application slots.
 6. Upload over USB.
@@ -104,9 +105,8 @@ The `continuous` release is replaced by each successful build. It contains
 separate `wired` and `battery` archives plus `SHA256SUMS.txt`. Do not flash one
 variant onto the other because their LED pin assignments differ.
 
-Cloud builds contain neither local WiFi nor OTA credentials. The wired build
-can be provisioned through `CodingLight-Setup`; the battery build has no captive
-portal and defaults to USB Serial or BLE when built without credentials.
+Cloud builds contain neither local WiFi nor OTA credentials. Both variants can
+be provisioned through the `CodingLight-Setup` captive portal.
 
 If release updates fail, check this repository setting:
 
@@ -116,7 +116,7 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 ## WiFi Setup
 
-The captive portal flow below applies to the wired variant.
+Both variants use the same captive portal flow.
 
 On first boot, if no WiFi credentials are configured, CodingLight starts an
 open access point:
@@ -135,15 +135,22 @@ http://192.168.4.1/
 Submit your SSID and password there. The credentials are saved in ESP32 NVS and
 survive reboot.
 
-To provision a different network later, long-press the ESP32-C3 Super Mini
-`BOOT` button for about 2.5 seconds. This re-enables the `CodingLight-Setup`
-AP. Opening the setup portal does not erase existing credentials; they are
-replaced only after you submit a new SSID.
+To provision a different network later:
+
+- On wired hardware, hold the ESP32-C3 Super Mini `BOOT` button for about 2.5 seconds.
+- On battery hardware, hold GPIO5 for at least 5 seconds and release when the light changes from the 2-second off indication to yellow.
+
+This re-enables the `CodingLight-Setup` AP. Opening the setup portal does not
+erase existing credentials; they are replaced only after you submit a new
+SSID. Releasing the battery button after 2–5 seconds still enters deep sleep.
+
+If the battery variant is asleep, the first GPIO5 press only wakes it. Release
+the button, wait for startup, then hold it again for at least 5 seconds.
 
 You can also provide build-time fallback credentials. Copy the example file:
 
 ```bash
-cp wifi_secrets.example.h wifi_secrets.h
+cp firmware/CodingLightWired/wifi_secrets.example.h firmware/CodingLightWired/wifi_secrets.h
 ```
 
 Edit `wifi_secrets.h`:
@@ -162,9 +169,9 @@ If `wifi_secrets.h` is missing or the SSID is empty, the device still supports
 USB Serial, BLE, and the setup AP. The HTTP control page is available through
 the setup AP and through your LAN after WiFi connects.
 
-For the battery variant, create `wifi_secrets.h` inside
-`firmware/CodingLightBattery/`. Without it, USB Serial and BLE still work, but
-HTTP and OTA do not start.
+The battery variant can also use a build-time `wifi_secrets.h` inside
+`firmware/CodingLightBattery/`. Without saved or build-time credentials, it
+starts the setup AP while USB Serial and BLE remain available.
 
 ## OTA Updates
 

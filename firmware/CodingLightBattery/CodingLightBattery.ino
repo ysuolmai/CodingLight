@@ -9,7 +9,8 @@
 
   Controls:
     Short button press: cycle through local light states.
-    Hold for 2 seconds, then release: enter deep sleep.
+    Hold for 2-5 seconds, then release: enter deep sleep.
+    Hold for 5 seconds, then release: open the WiFi setup portal.
     Press the button while sleeping: wake and restart in IDLE.
 
   The Serial, BLE NUS, and REST command contracts match the wired firmware.
@@ -17,11 +18,13 @@
 *******************************************************************************/
 
 #include <Arduino.h>
+#include <DNSServer.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
+#include <Preferences.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -57,13 +60,20 @@ static const uint32_t SERIAL_BAUD = 115200;
 static const uint32_t LEDC_FREQ_HZ = 5000;
 static const uint8_t LEDC_RES_BITS = 8;
 static const uint32_t WIFI_RECONNECT_INTERVAL_MS = 30000UL;
+static const uint32_t CONFIG_PORTAL_CLOSE_DELAY_MS = 3000UL;
 static const int8_t WIFI_TX_POWER_QDBM = 68;
 static const uint32_t BUTTON_DEBOUNCE_MS = 35UL;
-static const uint32_t BUTTON_LONG_PRESS_MS = 2000UL;
+static const uint32_t BUTTON_SLEEP_PRESS_MS = 2000UL;
+static const uint32_t BUTTON_WIFI_PRESS_MS = 5000UL;
 
 static const size_t COMMAND_BUFFER_SIZE = 96;
 static const size_t RESPONSE_BUFFER_SIZE = 448;
+static const size_t WIFI_SSID_BUFFER_SIZE = 33;
+static const size_t WIFI_PASSWORD_BUFFER_SIZE = 65;
 static const uint8_t BLE_RESPONSE_QUEUE_DEPTH = 4;
+
+static const char CONFIG_AP_SSID[] = "CodingLight-Setup";
+static const uint16_t DNS_PORT = 53;
 
 static const char NUS_SERVICE_UUID[] = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 static const char NUS_RX_UUID[] = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
@@ -82,6 +92,8 @@ enum LightState : uint8_t {
 };
 
 static WebServer server(80);
+static DNSServer dnsServer;
+static Preferences wifiPreferences;
 
 static BLEServer *bleServer = nullptr;
 static BLECharacteristic *bleTxCharacteristic = nullptr;
@@ -104,14 +116,22 @@ static esp_sleep_wakeup_cause_t wakeupCause = ESP_SLEEP_WAKEUP_UNDEFINED;
 
 static char serialCommandBuffer[COMMAND_BUFFER_SIZE];
 static size_t serialCommandLength = 0;
+static char activeWifiSsid[WIFI_SSID_BUFFER_SIZE];
+static char activeWifiPassword[WIFI_PASSWORD_BUFFER_SIZE];
+static bool wifiCredentialsAvailable = false;
 static uint32_t lastWifiReconnectAttemptMs = 0;
 static bool mdnsStarted = false;
 static bool otaStarted = false;
+static bool configPortalActive = false;
+static bool dnsServerStarted = false;
+static uint32_t configPortalCloseAtMs = 0;
+static LightState stateBeforeConfigPortal = STATE_IDLE;
 
 static bool buttonRawPressed = false;
 static bool buttonStablePressed = false;
 static bool buttonReady = false;
 static bool sleepArmed = false;
+static bool wifiSetupArmed = false;
 static uint32_t buttonRawChangedAtMs = 0;
 static uint32_t buttonPressedAtMs = 0;
 
@@ -124,6 +144,7 @@ static void buildInfoJson(char *out, size_t outSize);
 static bool processCommand(const char *command, char *response, size_t responseSize);
 static void handleBleCommandBytes(const uint8_t *data, size_t length);
 static void enterDeepSleep();
+static void startConfigPortal();
 
 static bool equalsIgnoreCase(const char *a, const char *b) {
   if (a == nullptr || b == nullptr) return false;
@@ -142,6 +163,16 @@ static void trimInPlace(char *text) {
   if (start != text) memmove(text, start, strlen(start) + 1);
   size_t len = strlen(text);
   while (len > 0 && isspace((unsigned char)text[len - 1])) text[--len] = '\0';
+}
+
+static void safeCopy(char *out, size_t outSize, const char *in) {
+  if (out == nullptr || outSize == 0) return;
+  if (in == nullptr) {
+    out[0] = '\0';
+    return;
+  }
+  strncpy(out, in, outSize - 1);
+  out[outSize - 1] = '\0';
 }
 
 static uint8_t scaleByGlobalBrightness(uint8_t value) {
@@ -243,6 +274,10 @@ static void renderWorkCycle(uint32_t elapsedMs) {
 }
 
 static void renderAnimation(uint32_t nowMs) {
+  if (wifiSetupArmed) {
+    setLeds(0, 255, 0);
+    return;
+  }
   if (sleepArmed) {
     setLeds(0, 0, 0);
     return;
@@ -317,24 +352,33 @@ static void serviceButton(uint32_t nowMs) {
       if (buttonReady) {
         buttonPressedAtMs = nowMs;
         sleepArmed = false;
+        wifiSetupArmed = false;
       }
     } else if (!buttonReady) {
       buttonReady = true;
+    } else if (wifiSetupArmed) {
+      wifiSetupArmed = false;
+      startConfigPortal();
     } else if (sleepArmed) {
       enterDeepSleep();
     } else {
       cycleLocalState();
     }
   }
-  if (buttonReady && buttonStablePressed && !sleepArmed &&
-      nowMs - buttonPressedAtMs >= BUTTON_LONG_PRESS_MS) {
+  const uint32_t heldMs = nowMs - buttonPressedAtMs;
+  if (buttonReady && buttonStablePressed && !wifiSetupArmed &&
+      heldMs >= BUTTON_WIFI_PRESS_MS) {
+    sleepArmed = false;
+    wifiSetupArmed = true;
+    setLeds(0, 255, 0);
+  } else if (buttonReady && buttonStablePressed && !sleepArmed &&
+             heldMs >= BUTTON_SLEEP_PRESS_MS) {
     sleepArmed = true;
     setLeds(0, 0, 0);
   }
 }
 
 static void stopNetworkServices() {
-  server.stop();
   if (otaStarted) {
     ArduinoOTA.end();
     MDNS.end();
@@ -360,6 +404,11 @@ static void enterDeepSleep() {
     return;
   }
 
+  server.stop();
+  if (dnsServerStarted) {
+    dnsServer.stop();
+    dnsServerStarted = false;
+  }
   stopNetworkServices();
   WiFi.disconnect(true, false);
   WiFi.mode(WIFI_OFF);
@@ -382,15 +431,20 @@ static void enterDeepSleep() {
 static void buildInfoJson(char *out, size_t outSize) {
   if (out == nullptr || outSize == 0) return;
   const IPAddress ip = WiFi.localIP();
+  const IPAddress apIp = WiFi.softAPIP();
   snprintf(out, outSize,
            "{\"variant\":\"battery\",\"state\":\"%s\",\"ip\":\"%u.%u.%u.%u\","
-           "\"wifi\":%s,\"ble\":%s,\"ota\":%s,\"brightness\":%u,"
-           "\"button\":%s,\"sleepArmed\":%s,\"wake\":\"%s\",\"uptime\":%lu}",
+           "\"wifi\":%s,\"ap\":%s,\"ap_ip\":\"%u.%u.%u.%u\","
+           "\"ble\":%s,\"ota\":%s,\"brightness\":%u,\"button\":%s,"
+           "\"sleepArmed\":%s,\"wifiSetupArmed\":%s,\"wake\":\"%s\",\"uptime\":%lu}",
            stateToText(currentState), ip[0], ip[1], ip[2], ip[3],
            WiFi.status() == WL_CONNECTED ? "true" : "false",
+           configPortalActive ? "true" : "false",
+           apIp[0], apIp[1], apIp[2], apIp[3],
            bleStarted ? "true" : "false", otaStarted ? "true" : "false",
            globalBrightness, buttonStablePressed ? "true" : "false",
-           sleepArmed ? "true" : "false", wakeCauseToText(wakeupCause),
+           sleepArmed ? "true" : "false", wifiSetupArmed ? "true" : "false",
+           wakeCauseToText(wakeupCause),
            (unsigned long)millis());
 }
 
@@ -632,38 +686,131 @@ static void startOtaIfNeeded() {
   mdnsStarted = true;
 }
 
+static bool isBuildTimeSsidConfigured() {
+  return WIFI_SSID[0] != '\0' && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0;
+}
+
+static bool loadWifiCredentials() {
+  activeWifiSsid[0] = '\0';
+  activeWifiPassword[0] = '\0';
+
+  bool loaded = false;
+  if (wifiPreferences.begin("codinglight", true)) {
+    const size_t ssidLen = wifiPreferences.getString(
+      "ssid", activeWifiSsid, sizeof(activeWifiSsid));
+    wifiPreferences.getString("pass", activeWifiPassword, sizeof(activeWifiPassword));
+    wifiPreferences.end();
+    loaded = ssidLen > 0 && activeWifiSsid[0] != '\0';
+  }
+
+  if (!loaded && isBuildTimeSsidConfigured()) {
+    safeCopy(activeWifiSsid, sizeof(activeWifiSsid), WIFI_SSID);
+    safeCopy(activeWifiPassword, sizeof(activeWifiPassword), WIFI_PASSWORD);
+    loaded = true;
+  }
+
+  wifiCredentialsAvailable = loaded;
+  return loaded;
+}
+
+static bool saveRuntimeWifiCredentials(const char *ssid, const char *password) {
+  if (ssid == nullptr || ssid[0] == '\0') return false;
+  if (!wifiPreferences.begin("codinglight", false)) return false;
+
+  const size_t savedSsid = wifiPreferences.putString("ssid", ssid);
+  wifiPreferences.putString("pass", password != nullptr ? password : "");
+  wifiPreferences.end();
+  if (savedSsid == 0) return false;
+
+  safeCopy(activeWifiSsid, sizeof(activeWifiSsid), ssid);
+  safeCopy(activeWifiPassword, sizeof(activeWifiPassword), password != nullptr ? password : "");
+  wifiCredentialsAvailable = true;
+  return true;
+}
+
+static void startConfigPortal() {
+  if (configPortalActive) return;
+
+  WiFi.mode(WIFI_AP_STA);
+  configureWifiRadio();
+  const IPAddress apIp(192, 168, 4, 1);
+  const IPAddress gateway(192, 168, 4, 1);
+  const IPAddress subnet(255, 255, 255, 0);
+  WiFi.softAPConfig(apIp, gateway, subnet);
+
+  if (WiFi.softAP(CONFIG_AP_SSID)) {
+    configPortalActive = true;
+    configPortalCloseAtMs = 0;
+    dnsServerStarted = dnsServer.start(DNS_PORT, "*", apIp);
+    stateBeforeConfigPortal = currentState;
+    setState(STATE_WARNING);
+    Serial.println("CONFIG_AP_STARTED");
+    Serial.println(apIp);
+  } else {
+    setState(STATE_ERROR);
+    Serial.println("CONFIG_AP_FAILED");
+  }
+}
+
+static void stopConfigPortal() {
+  if (!configPortalActive) return;
+  const bool restoreState = currentState == STATE_WARNING;
+  if (dnsServerStarted) {
+    dnsServer.stop();
+    dnsServerStarted = false;
+  }
+  WiFi.softAPdisconnect(true);
+  configPortalActive = false;
+  configPortalCloseAtMs = 0;
+  if (WiFi.status() == WL_CONNECTED || wifiCredentialsAvailable) {
+    WiFi.mode(WIFI_STA);
+  }
+  if (restoreState) setState(stateBeforeConfigPortal);
+  Serial.println("CONFIG_AP_STOPPED");
+}
+
 static void beginWifiAttempt(uint32_t nowMs) {
   lastWifiReconnectAttemptMs = nowMs;
-  if (WIFI_SSID[0] == '\0' || strcmp(WIFI_SSID, "YOUR_WIFI_SSID") == 0) return;
-  WiFi.mode(WIFI_STA);
+  if (!wifiCredentialsAvailable) return;
+
+  stopNetworkServices();
+  WiFi.mode(configPortalActive ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(false);
   configureWifiRadio();
   WiFi.disconnect(false, false);
   delay(100);
   configureWifiRadio();
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(activeWifiSsid, activeWifiPassword);
 }
 
 static void setupWifi() {
   configureWifiRadio();
-  beginWifiAttempt(millis());
+  WiFi.setHostname(DEVICE_NAME);
+  if (loadWifiCredentials()) {
+    beginWifiAttempt(millis());
+  } else {
+    startConfigPortal();
+  }
 }
 
 static void serviceWifi(uint32_t nowMs) {
+  if (dnsServerStarted) dnsServer.processNextRequest();
+
   if (WiFi.status() == WL_CONNECTED) {
     startOtaIfNeeded();
+    if (configPortalCloseAtMs != 0 && nowMs >= configPortalCloseAtMs) {
+      stopConfigPortal();
+    }
     return;
   }
-  if (otaStarted) {
-    ArduinoOTA.end();
-    MDNS.end();
-    otaStarted = false;
-    mdnsStarted = false;
-  } else if (mdnsStarted) {
-    MDNS.end();
-    mdnsStarted = false;
+
+  stopNetworkServices();
+  if (!wifiCredentialsAvailable) {
+    startConfigPortal();
+    return;
   }
-  if (nowMs - lastWifiReconnectAttemptMs >= WIFI_RECONNECT_INTERVAL_MS) {
+  if (lastWifiReconnectAttemptMs == 0 ||
+      nowMs - lastWifiReconnectAttemptMs >= WIFI_RECONNECT_INTERVAL_MS) {
     beginWifiAttempt(nowMs);
   }
 }
@@ -735,6 +882,98 @@ static void sendPlain(uint16_t code, const char *text) {
   server.send(code, "text/plain", text);
 }
 
+static void sendConfigPage(const char *message, bool isError) {
+  const IPAddress apIp = WiFi.softAPIP();
+  const bool staConnected = WiFi.status() == WL_CONNECTED;
+  char page[3200];
+  snprintf(page, sizeof(page),
+           "<!doctype html><html><head>"
+           "<meta charset=\"utf-8\">"
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+           "<title>CodingLight Battery WiFi Setup</title>"
+           "<style>"
+           "body{font-family:system-ui,sans-serif;margin:0;padding:20px;background:#f4f6f8;color:#111}"
+           "main{max-width:560px;margin:auto;background:#fff;border:1px solid #ccd3db;border-radius:8px;padding:20px}"
+           "h1{font-size:24px;margin:0 0 12px}"
+           "label{display:block;font-weight:650;margin:14px 0 6px}"
+           "input{box-sizing:border-box;width:100%%;font:inherit;padding:10px;border:1px solid #aeb8c2;border-radius:6px}"
+           "button{margin-top:16px;border:1px solid #0f766e;background:#0f766e;color:#fff;border-radius:6px;padding:11px 14px;font-weight:700}"
+           ".msg{padding:10px;border-radius:6px;background:%s;color:%s}"
+           ".meta{color:#57606a;font-size:13px;line-height:1.5;margin-top:16px}"
+           "a{color:#0f766e}"
+           "</style></head><body><main>"
+           "<h1>CodingLight Battery WiFi Setup</h1>"
+           "%s%s%s"
+           "<form method=\"post\" action=\"/config\">"
+           "<label for=\"ssid\">WiFi SSID</label>"
+           "<input id=\"ssid\" name=\"ssid\" maxlength=\"32\" required autocomplete=\"off\">"
+           "<label for=\"password\">WiFi Password</label>"
+           "<input id=\"password\" name=\"password\" maxlength=\"64\" type=\"password\" autocomplete=\"current-password\">"
+           "<button type=\"submit\">Save and Connect</button>"
+           "</form>"
+           "<p class=\"meta\">Setup AP: %s<br>AP IP: %u.%u.%u.%u<br>Station: %s<br>"
+           "Saved credentials remain unchanged until a new SSID is submitted.</p>"
+           "<p class=\"meta\"><a href=\"/control\">Open light controls</a></p>"
+           "</main></body></html>",
+           isError ? "#fee2e2" : "#dcfce7",
+           isError ? "#991b1b" : "#166534",
+           message != nullptr && message[0] != '\0' ? "<p class=\"msg\">" : "",
+           message != nullptr ? message : "",
+           message != nullptr && message[0] != '\0' ? "</p>" : "",
+           CONFIG_AP_SSID,
+           apIp[0], apIp[1], apIp[2], apIp[3],
+           staConnected ? "connected" : "not connected");
+  server.send(200, "text/html", page);
+}
+
+static void handleRoot() {
+  if (configPortalActive) {
+    sendConfigPage("", false);
+    return;
+  }
+  server.send_P(200, "text/html", INDEX_HTML);
+}
+
+static void handleConfigPost() {
+  if (!server.hasArg("ssid")) {
+    sendConfigPage("Missing SSID.", true);
+    return;
+  }
+
+  String ssidString = server.arg("ssid");
+  String passwordString = server.hasArg("password") ? server.arg("password") : "";
+  if (ssidString.length() == 0 || ssidString.length() >= WIFI_SSID_BUFFER_SIZE) {
+    sendConfigPage("SSID must be 1-32 bytes.", true);
+    return;
+  }
+  if (passwordString.length() >= WIFI_PASSWORD_BUFFER_SIZE) {
+    sendConfigPage("Password must be 64 bytes or less.", true);
+    return;
+  }
+
+  char ssid[WIFI_SSID_BUFFER_SIZE];
+  char password[WIFI_PASSWORD_BUFFER_SIZE];
+  ssidString.toCharArray(ssid, sizeof(ssid));
+  passwordString.toCharArray(password, sizeof(password));
+  if (!saveRuntimeWifiCredentials(ssid, password)) {
+    sendConfigPage("Failed to save credentials.", true);
+    return;
+  }
+
+  beginWifiAttempt(millis());
+  configPortalCloseAtMs = millis() + CONFIG_PORTAL_CLOSE_DELAY_MS;
+  sendConfigPage("Saved. CodingLight Battery is connecting now.", false);
+}
+
+static void redirectToConfigPortal() {
+  const IPAddress apIp = WiFi.softAPIP();
+  char location[48];
+  snprintf(location, sizeof(location), "http://%u.%u.%u.%u/config",
+           apIp[0], apIp[1], apIp[2], apIp[3]);
+  server.sendHeader("Location", location, true);
+  server.send(302, "text/plain", "");
+}
+
 static void handleApiInfo() {
   char json[RESPONSE_BUFFER_SIZE];
   buildInfoJson(json, sizeof(json));
@@ -776,11 +1015,21 @@ static void handleApiBrightness() {
 }
 
 static void setupHttp() {
-  server.on("/", HTTP_GET, []() { server.send_P(200, "text/html", INDEX_HTML); });
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/control", HTTP_GET, []() { server.send_P(200, "text/html", INDEX_HTML); });
+  server.on("/config", HTTP_GET, []() { sendConfigPage("", false); });
+  server.on("/config", HTTP_POST, handleConfigPost);
+  server.on("/generate_204", HTTP_GET, redirectToConfigPortal);
+  server.on("/hotspot-detect.html", HTTP_GET, redirectToConfigPortal);
+  server.on("/connecttest.txt", HTTP_GET, redirectToConfigPortal);
+  server.on("/fwlink", HTTP_GET, redirectToConfigPortal);
   server.on("/api/info", HTTP_GET, handleApiInfo);
   server.on("/api/state", HTTP_POST, handleApiState);
   server.on("/api/brightness", HTTP_POST, handleApiBrightness);
-  server.onNotFound([]() { sendPlain(404, "ERR"); });
+  server.onNotFound([]() {
+    if (configPortalActive) redirectToConfigPortal();
+    else sendPlain(404, "ERR");
+  });
   server.begin();
 }
 
