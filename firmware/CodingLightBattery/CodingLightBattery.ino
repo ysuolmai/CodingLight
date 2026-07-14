@@ -764,6 +764,7 @@ static void stopConfigPortal() {
   configPortalCloseAtMs = 0;
   if (WiFi.status() == WL_CONNECTED || wifiCredentialsAvailable) {
     WiFi.mode(WIFI_STA);
+    configureWifiRadio();
   }
   if (restoreState) setState(stateBeforeConfigPortal);
   Serial.println("CONFIG_AP_STOPPED");

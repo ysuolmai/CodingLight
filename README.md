@@ -121,6 +121,8 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 两种版本都使用相同的 captive portal 配网流程。
 
+两种固件都会把 ESP32-C3 WiFi 发射功率限制为 `68 qdBm`（17 dBm），并在启动 AP、连接和重连时重新应用该设置。
+
 首次烧录后，如果固件里没有 WiFi 配置，CodingLight 会自动开启一个开放热点：
 
 ```text

@@ -118,6 +118,10 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 Both variants use the same captive portal flow.
 
+Both firmware variants limit ESP32-C3 WiFi transmit power to `68 qdBm`
+(17 dBm) and reapply the setting when starting the AP, connecting, or
+reconnecting.
+
 On first boot, if no WiFi credentials are configured, CodingLight starts an
 open access point:
 

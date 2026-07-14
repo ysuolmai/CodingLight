@@ -96,6 +96,7 @@
 #include <Arduino.h>
 #include <DNSServer.h>
 #include <WiFi.h>
+#include "esp_wifi.h"
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
@@ -134,6 +135,7 @@ static const uint8_t LEDC_RES_BITS = 8;
 
 static const uint32_t SERIAL_BAUD = 115200;
 static const uint32_t WIFI_RECONNECT_INTERVAL_MS = 30000UL;
+static const int8_t WIFI_TX_POWER_QDBM = 68;
 static const uint32_t BOOT_LONG_PRESS_MS = 2500UL;
 static const uint32_t CONFIG_PORTAL_CLOSE_DELAY_MS = 3000UL;
 
@@ -870,6 +872,13 @@ static bool saveRuntimeWifiCredentials(const char *ssid, const char *password) {
   return true;
 }
 
+static void configureWifiRadio() {
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_max_tx_power(WIFI_TX_POWER_QDBM);
+}
+
 static void startNetworkServicesIfNeeded() {
   if (otaStarted || WiFi.status() != WL_CONNECTED) {
     return;
@@ -911,6 +920,7 @@ static void startConfigPortal() {
   }
 
   WiFi.mode(WIFI_AP_STA);
+  configureWifiRadio();
 
   const IPAddress apIp(192, 168, 4, 1);
   const IPAddress gateway(192, 168, 4, 1);
@@ -944,6 +954,7 @@ static void stopConfigPortal() {
 
   if (WiFi.status() == WL_CONNECTED || wifiCredentialsAvailable) {
     WiFi.mode(WIFI_STA);
+    configureWifiRadio();
   }
 
   Serial.println("CONFIG_AP_STOPPED");
@@ -958,13 +969,16 @@ static void beginWifiAttempt(uint32_t nowMs) {
 
   WiFi.mode(configPortalActive ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(false);
+  configureWifiRadio();
   WiFi.disconnect(false, false);
+  delay(100);
+  configureWifiRadio();
   WiFi.begin(activeWifiSsid, activeWifiPassword);
   lastWifiReconnectAttemptMs = nowMs;
 }
 
 static void setupWifi() {
-  WiFi.persistent(false);
+  configureWifiRadio();
   WiFi.setHostname(DEVICE_NAME);
 
   if (loadWifiCredentials()) {
