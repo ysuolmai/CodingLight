@@ -111,7 +111,7 @@ static portMUX_TYPE bleResponseMux = portMUX_INITIALIZER_UNLOCKED;
 
 static LightState currentState = STATE_IDLE;
 static uint32_t stateStartedAtMs = 0;
-static uint8_t globalBrightness = 180;
+static uint8_t globalBrightness = 1;
 static esp_sleep_wakeup_cause_t wakeupCause = ESP_SLEEP_WAKEUP_UNDEFINED;
 
 static char serialCommandBuffer[COMMAND_BUFFER_SIZE];
