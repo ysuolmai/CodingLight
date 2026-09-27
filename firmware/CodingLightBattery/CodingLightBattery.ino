@@ -141,6 +141,8 @@ static bool setState(LightState nextState);
 static void renderAnimation(uint32_t nowMs);
 static void setLeds(uint8_t red, uint8_t yellow, uint8_t green);
 static void buildInfoJson(char *out, size_t outSize);
+static void loadBrightness();
+static void setBrightness(uint8_t value);
 static bool processCommand(const char *command, char *response, size_t responseSize);
 static void handleBleCommandBytes(const uint8_t *data, size_t length);
 static void enterDeepSleep();
@@ -459,6 +461,21 @@ static bool parseUnsignedByte(const char *text, uint8_t *outValue) {
   return true;
 }
 
+static void loadBrightness() {
+  if (!wifiPreferences.begin("codinglight", true)) return;
+  globalBrightness = wifiPreferences.getUChar("brightness", globalBrightness);
+  wifiPreferences.end();
+}
+
+static void setBrightness(uint8_t value) {
+  globalBrightness = value;
+  if (wifiPreferences.begin("codinglight", false)) {
+    wifiPreferences.putUChar("brightness", value);
+    wifiPreferences.end();
+  }
+  renderAnimation(millis());
+}
+
 static bool processCommand(const char *command, char *response, size_t responseSize) {
   if (response == nullptr || responseSize == 0) return false;
   response[0] = '\0';
@@ -497,8 +514,7 @@ static bool processCommand(const char *command, char *response, size_t responseS
   } else if (equalsIgnoreCase(buffer, "BRIGHTNESS")) {
     uint8_t value;
     if (parseUnsignedByte(argument, &value)) {
-      globalBrightness = value;
-      renderAnimation(millis());
+      setBrightness(value);
       snprintf(response, responseSize, "OK");
       return true;
     }
@@ -1010,8 +1026,7 @@ static void handleApiBrightness() {
     sendPlain(400, "ERR");
     return;
   }
-  globalBrightness = (uint8_t)value;
-  renderAnimation(millis());
+  setBrightness((uint8_t)value);
   sendPlain(200, "OK");
 }
 
@@ -1040,6 +1055,7 @@ void setup() {
   releaseLedHoldsAfterWake();
   setupLedPwm();
   setLeds(0, 0, 0);
+  loadBrightness();
   setupButton();
   setState(STATE_IDLE);
   setupBle();
