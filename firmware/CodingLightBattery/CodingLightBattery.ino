@@ -65,6 +65,8 @@ static const int8_t WIFI_TX_POWER_QDBM = 68;
 static const uint32_t BUTTON_DEBOUNCE_MS = 35UL;
 static const uint32_t BUTTON_SLEEP_PRESS_MS = 2000UL;
 static const uint32_t BUTTON_WIFI_PRESS_MS = 5000UL;
+static const uint32_t IDLE_LIGHT_OFF_MS = 300000UL;
+static const uint32_t IDLE_SLEEP_MS = 900000UL;
 
 static const size_t COMMAND_BUFFER_SIZE = 96;
 static const size_t RESPONSE_BUFFER_SIZE = 448;
@@ -287,7 +289,10 @@ static void renderAnimation(uint32_t nowMs) {
   const uint32_t elapsedMs = nowMs - stateStartedAtMs;
   switch (currentState) {
     case STATE_OFF: setLeds(0, 0, 0); break;
-    case STATE_IDLE: setLeds(0, 0, 255); break;
+    case STATE_IDLE:
+      if (elapsedMs >= IDLE_LIGHT_OFF_MS) setLeds(0, 0, 0);
+      else setLeds(0, 0, 255);
+      break;
     case STATE_THINKING:
     case STATE_CODING:
     case STATE_BUILD: renderWorkCycle(elapsedMs); break;
@@ -468,12 +473,16 @@ static void loadBrightness() {
 }
 
 static void setBrightness(uint8_t value) {
+  const uint32_t nowMs = millis();
   globalBrightness = value;
   if (wifiPreferences.begin("codinglight", false)) {
     wifiPreferences.putUChar("brightness", value);
     wifiPreferences.end();
   }
-  renderAnimation(millis());
+  if (currentState == STATE_IDLE) {
+    stateStartedAtMs = nowMs;
+  }
+  renderAnimation(nowMs);
 }
 
 static bool processCommand(const char *command, char *response, size_t responseSize) {
@@ -1073,5 +1082,9 @@ void loop() {
   serviceWifi(nowMs);
   if (otaStarted) ArduinoOTA.handle();
   server.handleClient();
+  const uint32_t sleepCheckMs = millis();
+  if (currentState == STATE_IDLE && sleepCheckMs - stateStartedAtMs >= IDLE_SLEEP_MS) {
+    enterDeepSleep();
+  }
   delay(1);
 }

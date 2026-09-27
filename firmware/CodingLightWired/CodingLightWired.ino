@@ -138,6 +138,7 @@ static const uint32_t WIFI_RECONNECT_INTERVAL_MS = 30000UL;
 static const int8_t WIFI_TX_POWER_QDBM = 68;
 static const uint32_t BOOT_LONG_PRESS_MS = 2500UL;
 static const uint32_t CONFIG_PORTAL_CLOSE_DELAY_MS = 3000UL;
+static const uint32_t IDLE_LIGHT_OFF_MS = 300000UL;
 
 static const size_t COMMAND_BUFFER_SIZE = 96;
 static const size_t RESPONSE_BUFFER_SIZE = 384;
@@ -435,7 +436,11 @@ static void renderAnimation(uint32_t nowMs) {
       break;
 
     case STATE_IDLE:
-      setRGB(255, 0, 0);
+      if (elapsedMs >= IDLE_LIGHT_OFF_MS) {
+        setRGB(0, 0, 0);
+      } else {
+        setRGB(255, 0, 0);
+      }
       break;
 
     case STATE_THINKING:
@@ -544,12 +549,16 @@ static void loadBrightness() {
 }
 
 static void setBrightness(uint8_t value) {
+  const uint32_t nowMs = millis();
   globalBrightness = value;
   if (wifiPreferences.begin("codinglight", false)) {
     wifiPreferences.putUChar("brightness", value);
     wifiPreferences.end();
   }
-  renderAnimation(millis());
+  if (currentState == STATE_IDLE) {
+    stateStartedAtMs = nowMs;
+  }
+  renderAnimation(nowMs);
 }
 
 static bool processCommand(const char *command, char *response, size_t responseSize) {

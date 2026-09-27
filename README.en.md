@@ -187,6 +187,8 @@ Both firmware variants start ArduinoOTA after WiFi connects:
 - Copy the relevant `ota_secrets.example.h` to `ota_secrets.h` and set a strong password.
 - OTA updates only the application. Partition-table or bootloader changes, and recovery from a wrong variant, require USB flashing.
 
+Both variants turn the LEDs off after 5 minutes without a new valid signal in `IDLE` without sleeping, and restore the display when a new state or brightness command arrives. The battery variant enters deep sleep after 15 minutes without a signal in `IDLE`; GPIO5 wakes the device.
+
 ## Control Interfaces
 
 ### Serial and BLE Commands

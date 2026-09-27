@@ -177,6 +177,8 @@ static const char WIFI_PASSWORD[] = "your_wifi_password";
 - 建议从对应目录的 `ota_secrets.example.h` 复制为 `ota_secrets.h` 并设置强密码。
 - OTA 只能更新 application 固件。改变分区表、bootloader 或刷错固件时，必须回到 USB 烧录。
 
+两种版本在 `IDLE` 状态连续 5 分钟没有新的有效信号后会关闭 LED，但不会休眠；收到新的状态或亮度命令后会立即恢复。电池版在 `IDLE` 连续 15 分钟没有信号后会进入深度睡眠，GPIO5 可唤醒设备。
+
 ## 控制接口
 
 ### Serial 和 BLE 命令
